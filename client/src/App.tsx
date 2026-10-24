@@ -1041,14 +1041,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                             )}
                           </td>
                           <td>
-                            <button
-                              className="row-link"
-                              onClick={() => setOpened(p)}
-                            >
-                              Voir la fiche
-                              <ArrowRight size={15} />
-                            </button>
-                            {archiveButton(p)}
+                            <div className="flex items-center gap-2 whitespace-nowrap">
+                              <button
+                                className="row-link"
+                                onClick={() => setOpened(p)}
+                              >
+                                Voir la fiche
+                                <ArrowRight size={15} />
+                              </button>
+                              {archiveButton(p)}
+                            </div>
                           </td>
                         </tr>
                       ))}

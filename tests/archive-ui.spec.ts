@@ -91,7 +91,19 @@ test("Tous les leads ignores previous search and qualification filters", async (
   await expect(page.getByRole("button", { name: "Tous 2", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Actifs 2", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Archivés 0", exact: true })).toBeVisible();
+  const expectInlineActions = async () => {
+    const row = page.locator("tbody tr").first();
+    const view = await row.getByRole("button", { name: "Voir la fiche", exact: true }).boundingBox();
+    const archive = await row.getByRole("button", { name: "Archiver", exact: true }).boundingBox();
+    expect(view).not.toBeNull(); expect(archive).not.toBeNull();
+    expect(Math.abs((view!.y + view!.height / 2) - (archive!.y + archive!.height / 2))).toBeLessThan(2);
+    expect(archive!.x).toBeGreaterThanOrEqual(view!.x + view!.width + 4);
+  };
+  await expectInlineActions();
   await page.screenshot({ path: `${evidence}/directory-desktop.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".table-scroll").evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expectInlineActions();
   expect(errors).toEqual([]);
 });
 
