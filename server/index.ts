@@ -20,6 +20,7 @@ import { persistResults, resolveSearch, presentSearch, findSavedSearch, shareSea
 import { makeQuery, queryForSearch, queryKey } from "./searchQuery";
 import { discoverNext } from "./services/discovery";
 import { planEnrichment, validPlaceId } from "./services/apifyPlan";
+import { planApifyDiscovery, startApifyDiscovery, verifyApifyDiscovery } from "./services/apifyDiscovery";
 const app = express();
 app.disable("x-powered-by");
 mountAgent(app);
@@ -72,6 +73,7 @@ const searchSchema = z.object({
     budget: z.number().min(0.05).max(10),
     engine: engineSchema,
     refresh: z.boolean().default(false),
+    refreshPool: z.boolean().optional(),
     requestId: z.uuid().optional(),
     intent: z.enum(["browse", "discover"]).default("browse"),
 });
@@ -159,6 +161,30 @@ app.post("/api/search", async (req, res) => {
     });
     res.json(result);
 });
+const apifyDiscoverySchema = z.object({
+    city: searchSchema.shape.city,
+    activity: searchSchema.shape.activity,
+    keyword: z.string().trim().max(150),
+    engine: engineSchema,
+    max: z.number().int().min(1).max(25),
+    budget: z.number().min(0.05).max(10),
+}).strict();
+app.post("/api/apify/discovery/plan", async (req, res) => {
+    res.json(await planApifyDiscovery(apifyDiscoverySchema.parse(req.body)));
+});
+app.post("/api/apify/discovery/start", async (req, res) => {
+    const input = apifyDiscoverySchema.extend({ planId: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.uuid(), confirmed: z.literal(true) }).strict().parse(req.body);
+    const old = (await list<Search>("searches")).find((s) => s.kind === "discovery" && s.provider === "Apify" && s.requestId === input.requestId);
+    if (old) return res.json({ ...await resolveSearch(old), cached: true });
+    const pending = await getSetting<any>("apifyPending", null);
+    if (pending?.mode === "discovery" && pending.requestId === input.requestId) return res.json({ pending: true, runId: pending.runId });
+    const limits = await getSetting("limits", { max: 25, budget: 1 });
+    if (input.max > limits.max || input.budget > limits.budget) throw Error("Les limites demandées dépassent vos plafonds enregistrés.");
+    const plan = await planApifyDiscovery(input);
+    if (plan.planId !== input.planId) throw Error("Le plan a changé : recalculez son aperçu avant paiement.");
+    const result = await startApifyDiscovery(await secret("apifyKey"), input);
+    res.json(typeof result === "string" ? { pending: true, runId: result } : result);
+});
 const enrichmentSchema = z.object({ prospectIds: z.array(z.string().min(1).max(500)).min(1).max(200) });
 app.post("/api/apify/plan", async (req, res) => {
     res.json(await planEnrichment(enrichmentSchema.parse(req.body).prospectIds));
@@ -184,7 +210,7 @@ app.post("/api/apify/poll", async (_req, res) => {
         res.json(result);
         return;
     }
-    const saved = await persistResults(result.items!, result.args, "Apify", result.cost!, [], { kind: result.args.placeIds ? "enrichment" : undefined, query: result.args.query || makeQuery({ ...result.args, paid: true }), refreshed: result.args.refresh });
+    const saved = await persistResults(result.items!, result.args, "Apify", result.cost!, [], { kind: result.args.mode === "discovery" ? "discovery" : result.args.placeIds ? "enrichment" : undefined, query: result.args.query || makeQuery({ ...result.args, paid: true }), refreshed: result.args.refresh });
     (await acknowledgeApify());
     res.json({ ...saved, enriched: !!result.args.placeIds, runStatus: result.status });
 });
@@ -196,7 +222,7 @@ app.post("/api/apify/recover", async (req, res) => {
     res.json({ ok: true });
 });
 app.post("/api/apify/verify", async (_req, res) => {
-    await verifyApify((await secret("apifyKey")));
+    await verifyApifyDiscovery((await secret("apifyKey")));
     res.json({ ok: true });
 });
 app.get("/api/searches/:id", async (req, res) => {

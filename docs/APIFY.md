@@ -1,27 +1,66 @@
-# Contrat Apify et protection avant facturation — version 1.3
+# Apify : recherche avec exclusions avant facturation
 
-Le schéma et les tarifs publics de `compass/crawler-google-places` ont été relus le 20 octobre 2026, sans token et sans collecte payante :
+## Diagnostic
 
-- Actor : https://api.apify.com/v2/acts/compass~crawler-google-places
-- Build et schéma : https://api.apify.com/v2/acts/compass~crawler-google-places/builds/default
-- Build observé : **0.14.773**, PAY_PER_EVENT, minimum de budget observé : **0,50 USD** (relu à chaque lancement).
+L'ancienne route payante par mots-clés utilisait `compass/crawler-google-places`, dont le schéma ne propose pas d'exclusion des entreprises déjà collectées avant facturation. Filtrer ensuite dans SQLite n'empêche pas de payer ces mêmes résultats. Cette route reste bloquée, même avec `refresh` ; les anciennes recherches restent consultables.[3]
 
-**Constat :** ce schéma ne contient aucun champ d’exclusion de Place IDs déjà collectés et aucun curseur « résultats suivants ». `placeIds` désigne les établissements à scraper, pas ceux à exclure. Relancer la même chaîne de recherche peut facturer les mêmes fiches, même si elles sont dédupliquées ensuite dans SQLite.
+Les endpoints et le schéma publics de Compass étaient accessibles lors de l'audit : aucune URL cassée n'a été constatée. Deux défauts distincts ont été identifiés : la récupération manuelle vérifiait seulement l'Actor d'un run, et le coût pouvait être enregistré avant sa stabilisation.
 
-**Décision dans ProspectAI :** aucun nouveau run payant par mots-clés. Le serveur rejette ces demandes, y compris `refresh=true`. Les anciennes recherches sont consultables sans frais. Les nouveaux lots sont préparés avec les sources gratuites et une réserve locale, en excluant le catalogue existant.
+## Recherche par ville et activité
 
-## Enrichissement ciblé facultatif
+Le nouveau parcours utilise **`benthepythondev/google-maps-business-scraper`**. Son schéma expose `excludePlaceIds`, `excludePlaceUrls`, `onlyNew` et `monitorId`. Selon la documentation du fournisseur, les établissements exclus ou déjà livrés dans ce mode ne sont pas sauvegardés ni facturés comme résultats.[1]
 
-`POST /api/apify/plan` calcule localement un aperçu sur des candidats importés avec un vrai `placeId`. Il compare l’historique Apify, les données anciennes et les réservations persistantes. Il exclut les identifiants déjà collectés ou réservés, les doublons de la sélection, les démos et les identifiants invalides. Il retient au plus 25 identifiants et fournit l’empreinte du lot. Aucun accès externe à cette étape.
+1. Renseigner ville, activité/mot-clé et budget.
+2. **Préparer une recherche Apify** calcule un plan local : critères, limite du lot, nombre d'identifiants à exclure et avertissements. Aucun run à cette étape.
+3. Relire le fournisseur nommé dans l'aperçu, le budget et les limites. Les fiches sans identifiant Google exploitable ne peuvent pas être exclues avec certitude par identifiant.
+4. **Confirmer et lancer la collecte Apify** est l'action payante explicite. Le serveur revérifie le plan, les limites enregistrées et le verrou avant le POST fournisseur.
+5. **Récupérer la collecte** consulte ce run existant. En cas de lancement incertain, retrouver son Run ID : ne pas relancer une nouvelle collecte pour contourner un délai réseau.
 
-`POST /api/apify/enrich` revérifie cette empreinte, les plafonds et l’absence de paiement antérieur. `startApify` refuse lui-même les mots-clés et les identifiants déjà connus. Un verrou durable empêche deux lancements simultanés. `apify_place_claims` réserve chaque identifiant AVANT le POST de lancement et empêche sa répétition après redémarrage ou erreur incertaine.
+La clé reste dans `.env` ou les paramètres chiffrés. Ne jamais la transmettre dans le chat, un export ou Git. `npm run check:connections` effectue des contrôles sans collecte payante.
 
-Entrée envoyée : `placeIds` (1 à 25), `maxCrawledPlacesPerSearch` = taille du lot, `language=fr`, `scrapeContacts=true`. Aucun `searchStringsArray` ni `locationQuery`. Options désactivées lorsqu’elles existent : `scrapePlaceDetailPage`, `maxReviews`, `maxImages`, `maximumLeadsEnrichmentRecords`, les enrichissements des profils sociaux et l’analyse concurrentielle. Les Place IDs/URL directs peuvent néanmoins entraîner automatiquement le supplément de détails, selon la documentation de l’Actor.
+## Anti-doublons et conservation
 
-L’API reçoit le build vérifié, `maxTotalChargeUsd`, `maxItems` = taille du lot, `restartOnError=false`. Le seuil financier reste soumis aux événements de facturation Apify ; l’application ne garantit pas un plafond absolu indépendant du fournisseur. `usageTotalUsd` du run est la seule source du coût affiché.
+- Exclusions sur l'ensemble des fiches réelles connues, l'historique et les réservations exploitables, pas uniquement les lignes visibles ou sélectionnées.
+- Identifiants conservés comme chaînes : ne pas convertir un CID Google en nombre JavaScript, au risque de perdre sa précision.
+- Empreinte liée aux critères, budget, exclusions et mémoire de suivi ; un plan périmé demande un nouvel aperçu.
+- `onlyNew=true` avec un `monitorId` stable ajoute une mémoire fournisseur entre les runs de l'installation ; ne pas remplacer cette protection par un nom différent à chaque clic.[1]
+- Un seul run à la fois. Répéter la même requête déjà en cours ou enregistrée ne doit pas créer un second paiement.
+- Un filtre local supplémentaire ne réintroduit pas une identité connue si le prestataire la renvoie. Ce filtrage après réponse n'est pas une preuve de non-facturation.
 
-Récupération manuelle du même run, idempotente par Run ID, sans relance. Les identifiants restent réservés en cas d’échec ou de réponse incertaine ; aucun crédit supplémentaire n’est engagé automatiquement. Les anciens runs déjà lancés restent récupérables. Aucun remboursement des dépenses anciennes n’est effectué par ProspectAI.
+Les identifiants absents, les changements d'identité Google et la qualité des données du prestataire empêchent de promettre zéro doublon physique dans toutes les situations. Un lot peut contenir moins de 25 nouveaux établissements ; aucun faux résultat n'est ajouté pour compléter.
 
-Les tests simulent les fournisseurs et vérifient qu’un identifiant déjà collecté est refusé avant tout appel externe. La vérification sur l’export fourni (37 fiches, 4 recherches) a exclu les 37 identifiants sans appel Apify. Les lots de 25 sont vérifiés avec des candidats simulés ; l’existence de 75 nouveaux établissements réels à Bordeaux n’a pas été affirmée ni vérifiée.
+**Conserver `.env` et `.data/` lors d'une mise à jour.** L'historique et la mémoire locale fournissent une partie des exclusions. Le changement de fournisseur ne supprime ni anciennes recherches, ni fiches, sélections ou dossiers Hermès.
 
-**Non testé :** lancement et facturation réels du nouveau mode ciblé. Aucun crédit n’a été dépensé pour ces vérifications.
+## Coût
+
+La tarification publique du nouvel Actor est `PAY_PER_EVENT`, avec un événement de démarrage et des événements de résultats. Un frais de lancement peut donc subsister même sans nouvelle ligne exportée.[1][2]
+
+Le contrat et le build sont vérifiés avant lancement. Le lot est limité à 25 au plus et `maxTotalChargeUsd` transmet le seuil financier à Apify. Ce seuil reste soumis au fonctionnement des événements du prestataire : il ne constitue pas une garantie absolue de facture. Ne pas utiliser `maxItems` comme protection financière pour un Actor `PAY_PER_EVENT`.
+
+Seul le coût rapporté par Apify est affiché, jamais une estimation présentée comme débitée. Une collecte récemment terminée reste en finalisation avant que son coût soit enregistré. Des informations de fin manquantes ne deviennent pas un coût définitif.
+
+## Enrichissement Compass historique
+
+`POST /api/apify/plan` prépare toujours localement un lot de 1 à 25 Place IDs importés. `POST /api/apify/enrich` revérifie l'empreinte, les plafonds et les identifiants déjà collectés ou réservés avant l'appel. Les anciens `apify_place_claims` sont conservés.
+
+Compass reçoit des `placeIds`, jamais une nouvelle recherche par mots-clés. Les options d'avis, images et enrichissements supplémentaires restent désactivées lorsqu'elles existent. Selon la documentation de cet Actor, les Place IDs directs peuvent néanmoins entraîner un supplément de détails. Les paramètres de ce parcours ne doivent pas être confondus avec ceux du nouvel Actor de recherche.[3]
+
+## Récupération sûre
+
+Un Run ID ne suffit pas : avant rattachement, contrôler l'Actor, le propriétaire, la chronologie et l'entrée du run par rapport à la collecte en attente. Un run historique, d'un autre compte ou d'un autre lot doit être refusé sans lever le verrou. Une ancienne collecte incertaine sans éléments de correspondance suffisants demande une vérification manuelle, pas un rattachement approximatif.
+
+## Recherche gratuite
+
+Un run Apify en attente ne doit pas désactiver la recherche gratuite. Une réserve épuisée peut être actualisée explicitement, sans lancement Apify ni perte de l'historique. Les avertissements des sources restent visibles, même pour un résultat vide.
+
+Les métiers français pris en charge sont rapprochés des catégories OSM/NAF : une fiche de plombier n'est pas rejetée uniquement parce qu'elle utilise `plumber` ou un code NAF plutôt que le mot français dans son nom.
+
+## Vérifications et limites
+
+Les schémas et tarifs publics ont été consultés le **24 octobre 2026**, par GET sans token ni lancement payant.[1][2][3] Les tests utilisent des fournisseurs simulés et des bases temporaires. Le comportement effectif des exclusions et la facturation du nouvel Actor ne sont pas validés par un run payant dans cette intervention : les garanties annoncées restent celles du prestataire, pas une preuve tirée des tests locaux.
+
+## Sources
+
+[1] https://api.apify.com/v2/acts/benthepythondev~google-maps-business-scraper/builds/default — Actor de recherche avec exclusions : schéma et documentation officiels
+[2] https://api.apify.com/v2/acts/benthepythondev~google-maps-business-scraper — Tarification officielle du nouvel Actor de recherche
+[3] https://api.apify.com/v2/acts/compass~crawler-google-places/builds/default — Schéma officiel Compass conservé pour enrichissement ciblé

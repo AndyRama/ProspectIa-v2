@@ -1,26 +1,20 @@
 import type { Engine, Prospect, Source, SearchQuery } from "../types";
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { db, getSetting, setSetting, claimSetting } from "../db";
 import { billedPlaceIds, validPlaceId } from "./apifyPlan";
+import { discoveryActor, discoveryActorId, discoveryApi } from './apifyDiscovery';
+import { canonicalMapsUrl } from './identity';
+function expectedActor(pending: any) {
+  if (pending.mode === 'discovery') {
+    if (pending.actorSlug !== discoveryActor || pending.actorId !== discoveryActorId) throw Error('Actor Apify non autorisé.');
+    return discoveryActorId;
+  }
+  return 'nwua9Gu5YrADL7ZDj';
+}
 const actor = "compass~crawler-google-places";
 async function api(path: string, token: string, init?: RequestInit) {
-  const r = await fetch(`https://api.apify.com/v2/${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!r.ok) {
-    if (r.status === 401 || r.status === 403)
-      throw Error("Apify : clé invalide ou accès refusé.");
-    if (r.status === 402) throw Error("Apify : crédit insuffisant.");
-    throw Error(
-      `Apify a répondu HTTP ${r.status}. Aucun nouvel essai automatique.`,
-    );
-  }
-  return r.json();
+  return discoveryApi(path, token, init);
 }
 export async function verifyApify(token: string) {
   if (!token)
@@ -71,6 +65,11 @@ export async function startApify(
   },
 ) {
   const ids = [...new Set(args.placeIds || [])];
+  const enforceLimits = async () => {
+    const limits = await getSetting('limits', {max:25,budget:1});
+    if (!Number.isInteger(args.max) || args.max < 1 || args.max > 25 || !Number.isFinite(args.budget) || args.budget < .05 || args.budget > 10 || ids.length > limits.max || args.budget > limits.budget) throw Error('Plafonds Apify invalides ou dépassés.');
+  };
+  await enforceLimits();
   if (!ids.length) throw Error("Les recherches Google Maps payantes par mot-clé sont désactivées : cet Actor ne permet pas d’exclure les entreprises déjà facturées. Préparez un lot d’identifiants inédits avant paiement.");
   if (ids.length > 25 || ids.some((id) => !validPlaceId(id))) throw Error("Lot Apify refusé : 1 à 25 identifiants Google Maps valides sont requis.");
   const billed = await billedPlaceIds();
@@ -113,6 +112,7 @@ export async function startApify(
         throw Error("Paiement bloqué : un identifiant du lot vient d’être réservé ou collecté.");
       }
       await db.batch(ids.map((id) => ({ sql: "INSERT INTO apify_place_claims VALUES(?,NULL,?)", args: [id, pending.startedAt] })));
+      await enforceLimits();
       submitted = true;
       const result = (
         await api(
@@ -153,8 +153,33 @@ export async function recoverApify(token: string, runId: string) {
     throw Error("Aucune collecte incertaine à récupérer.");
   const run = (await api("actor-runs/" + encodeURIComponent(runId), token))
     .data;
-  if (run.actId !== "nwua9Gu5YrADL7ZDj")
-    throw Error("Ce run ne correspond pas à Google Maps Scraper.");
+  if (run?.actId !== expectedActor(pending) || run.id !== runId)
+    throw Error('Ce run ne correspond pas à l’Actor attendu.');
+  const owner = (await discoveryApi('users/me', token)).data;
+  const started = Date.parse(run.startedAt), claimed = Date.parse(pending.startedAt);
+  if (!owner?.id || run.userId !== owner.id || !Number.isFinite(started) || !Number.isFinite(claimed) || started < claimed || started - claimed > 300000)
+    throw Error('Run Apify d’un autre propriétaire ou historique : récupération refusée.');
+  if (!run.defaultKeyValueStoreId) throw Error('Preuve INPUT du lot indisponible : verrou conservé.');
+  const input = await discoveryApi(`key-value-stores/${encodeURIComponent(run.defaultKeyValueStoreId)}/records/INPUT`, token);
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  if (pending.mode === 'discovery') {
+    const expected = pending.input;
+    // Only the exclusion lists are unordered. All explicitly recorded fields
+    // (including false flags) must be present with their original values.
+    const normalizeInputValue = (key: string, value: unknown) =>
+      ['excludePlaceIds','excludePlaceUrls'].includes(key) && Array.isArray(value) ? [...value].sort() : value;
+    const extraSelector = ['queries','locations','startUrls','searchStringsArray','placeIds'].some(key =>
+      !Object.hasOwn(expected || {}, key) && input?.[key] != null && input[key] !== '' &&
+      !(Array.isArray(input[key]) && input[key].length === 0));
+    if (!expected || typeof expected !== 'object' || Array.isArray(expected) || !input ||
+        Object.keys(expected).some(key => !Object.hasOwn(input, key) ||
+          !isDeepStrictEqual(normalizeInputValue(key, input[key]), normalizeInputValue(key, expected[key]))) || extraSelector)
+      throw Error('INPUT ne correspond pas au lot de recherche attendu.');
+  } else if (!Array.isArray(pending.placeIds) || !Array.isArray(input?.placeIds) || !same([...input.placeIds].sort(), [...pending.placeIds].sort()) || input.maxCrawledPlacesPerSearch !== pending.placeIds.length) {
+    throw Error('Preuve INPUT du lot ciblé absente ou différente : verrou conservé.');
+  }
+  const latest = await getSetting<any>('apifyPending', null);
+  if (!latest || latest.runId || JSON.stringify(latest) !== JSON.stringify(pending)) throw Error('Le lot a changé pendant la récupération.');
   await setSetting("apifyPending", { ...pending, runId });
 }
 export async function collectApify(token: string) {
@@ -167,6 +192,7 @@ export async function collectApify(token: string) {
   const run = (
     await api(`actor-runs/${encodeURIComponent(pending.runId)}`, token)
   ).data;
+  if (!run || run.id !== pending.runId || run.actId !== expectedActor(pending)) throw Error('Run Apify invalide ou Actor différent.');
   if (["READY", "RUNNING", "TIMING-OUT", "ABORTING"].includes(run.status))
     return { pending: true, runId: run.id, status: run.status };
   if (!["SUCCEEDED", "TIMED-OUT", "ABORTED", "FAILED"].includes(run.status)) {
@@ -174,11 +200,32 @@ export async function collectApify(token: string) {
       `Collecte Apify terminée : ${run.status}. Consultez la console Apify ; des frais peuvent avoir été engagés.`,
     );
   }
+  const finishedAt = Date.parse(run.finishedAt);
+  if (!Number.isFinite(finishedAt) || Date.now() - finishedAt < 10000) return { pending: true, status: 'FINALIZING', runId: run.id };
   const rows = run.defaultDatasetId ? await api(
-    `datasets/${encodeURIComponent(run.defaultDatasetId)}/items?clean=true&limit=${pending.max}`,
+    `datasets/${encodeURIComponent(run.defaultDatasetId)}/items?clean=true&limit=20001`,
     token,
   ) : [];
-  const items: Prospect[] = rows
+  if (!Array.isArray(rows) || rows.some((r: any) => !r || typeof r !== 'object' || r.error || r.errorMessage || typeof (pending.mode === 'discovery' ? r.name : r.title) !== 'string' || !(pending.mode === 'discovery' ? r.name : r.title).trim())) throw Error('Dataset Apify invalide ou erreur fournisseur ; verrou conservé.');
+  if (pending.mode === 'discovery' && rows.some((r: any) =>
+    (r.place_id != null && r.place_id !== '' && (typeof r.place_id !== 'string' || !validPlaceId(r.place_id))) ||
+    (r.cid != null && r.cid !== '' && (typeof r.cid !== 'string' || !/^\d+$/.test(r.cid))) ||
+    (r.feature_id != null && r.feature_id !== '' && (typeof r.feature_id !== 'string' || !/^0x[0-9a-f]+:0x[0-9a-f]+$/i.test(r.feature_id)))
+  )) throw Error('Identité Google Apify invalide ; verrou conservé.');
+  const excludedIds = new Set(pending.exclusionSnapshot?.ids || []), excludedUrls = new Set(pending.exclusionSnapshot?.urls || []);
+  const seen = new Set<string>();
+  const normalized = rows.map((r: any) => pending.mode === 'discovery' ? {
+    ...r, title:r.name, placeId:r.place_id, categoryName:r.category, totalScore:r.rating, reviewsCount:r.review_count,
+    location:{lat:r.latitude,lng:r.longitude},openingHours:r.opening_hours,imageUrl:r.image_url,imageUrls:r.photos,
+  } : r).filter((r: any) => {
+    if (pending.mode !== 'discovery') return true;
+    if ([r.placeId,r.cid,r.feature_id].some(id => excludedIds.has(id)) || excludedUrls.has(r.url)) return false;
+    const identity = r.placeId || r.cid || r.feature_id || canonicalMapsUrl(r.url);
+    if (identity && seen.has(identity)) return false;
+    if (identity) seen.add(identity);
+    return true;
+  }).slice(0, pending.mode === 'discovery' ? Math.min(25, pending.max) : pending.max);
+  const items: Prospect[] = normalized
     .filter((r: any) => r.title && (!pending.placeIds || pending.placeIds.includes(r.placeId)))
     .map((r: any): Prospect => {
       const fields: Record<string, Source> = {};
@@ -206,6 +253,8 @@ export async function collectApify(token: string) {
             : undefined,
         googleMaps: r.url,
         placeId: r.placeId,
+        cid: r.cid,
+        featureId: r.feature_id,
       })) {
         if (value !== undefined && value !== null && value !== "")
           fields[key] = {
@@ -222,8 +271,13 @@ export async function collectApify(token: string) {
           collectedAt: new Date().toISOString(), qualification: "Rapporté par Apify · à confirmer",
         };
       }
+      const mapsUrl = canonicalMapsUrl(r.url);
+      const featureId = typeof r.feature_id === 'string' && /^0x[0-9a-f]+:0x[0-9a-f]+$/i.test(r.feature_id) ? r.feature_id : null;
+      const identity = r.placeId || r.cid || featureId || mapsUrl || createHash('sha256')
+        .update(JSON.stringify([r.title, r.address || '', r.city || pending.city || '']))
+        .digest('hex');
       return {
-        id: `apify-${r.placeId || r.cid || Buffer.from(r.title + r.address).toString("base64url")}`,
+        id: `apify-${identity}`,
         name: r.title,
         category: r.categoryName || r.categories?.[0] || "Commerce",
         city: r.city || pending.city,

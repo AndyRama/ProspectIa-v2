@@ -2,7 +2,7 @@
 
 ProspectAI aide à trouver des entreprises locales, consulter leur présence web et préparer un **prompt accompagné d’un dossier complet pour Hermès IA**. Hermès réalise ensuite le projet dans son propre environnement, selon vos validations.
 
-La version 1.3 empêche les relances payantes par mot-clé qui facturaient de nouveau des entreprises déjà connues. Le bouton **Trouver 25 nouveaux prospects** utilise les sources gratuites, exclut les entreprises enregistrées et consomme une réserve locale sans recommencer la première liste. Apify est réservé à un enrichissement ciblé de Place IDs vérifiés comme inédits avant l’appel.
+Le parcours distingue les sources gratuites, la **recherche Apify avec exclusions avant facturation**, et l'enrichissement ciblé historique. La recherche Apify demande un aperçu et une confirmation : les identifiants déjà connus sont transmis en exclusion, avec une mémoire « uniquement nouveaux » conservée entre les runs. Un lot n'est pas garanti à 25 résultats et des frais de lancement peuvent subsister même sans résultat. Voir [le contrat et les limites Apify](docs/APIFY.md).
 
 Les recherches anciennes, les prospects, les sélections et les statuts restent conservés. Les prompts Hermès et l’offre d’agent personnel sont maintenus. Aucune connexion Gmail, publication de maquette ni API de rédaction n’est utilisée.
 
@@ -41,13 +41,13 @@ Les scripts refusent une version de Node trop ancienne avant de lancer les servi
 
 Pour mettre à jour une installation existante, arrêter l’application, sauvegarder `.env` et `.data/`, puis remplacer les fichiers du projet par ceux du nouveau ZIP en conservant ces deux éléments. Relancer `npm ci`, `npm run setup` et `npm run dev`. Ne jamais pousser les sauvegardes sur GitHub.
 
-Vérifié en version 1.3 : compilation TypeScript/Vite, 19 tests métier/API et 4 parcours Chromium. Les vérifications incluent trois lots simulés distincts de 25 et le blocage des identifiants déjà collectés avant tout appel Apify. Ils couvrent l’historique, les doublons, le téléchargement du dossier et l’affichage du prompt sur ordinateur et téléphone. L’exécution du projet par votre agent Hermès reste à vérifier avec lui ; ProspectAI ne pilote pas cet agent.
+Vérifications disponibles : compilation TypeScript/Vite, tests métier/API et parcours Chromium. Les fournisseurs payants sont simulés dans les tests : ces contrôles ne constituent pas une collecte facturée ni une validation de la facturation réelle. L’exécution du projet par votre agent Hermès reste à vérifier avec lui ; ProspectAI ne pilote pas cet agent.
 
 ## Le nouveau parcours avec Hermès
 
 1. Dans **Paramètres**, renseigner votre business, vos services, votre zone, vos tarifs indicatifs et votre ton. Le site de votre entreprise peut préremplir ses textes publics. Le champ **Vos consignes complémentaires pour Hermès** permet d’ajouter votre style, vos exemples et vos préférences de livraison.
 2. Choisir un moteur avant la recherche : création/refonte de site, menus et supports, ou projet d’agent personnel.
-3. Cliquer **Trouver 25 nouveaux prospects**, importer un CSV ou ouvrir la démo. La recherche est gratuite. L’historique permet de revoir les résultats anciens sans les facturer à nouveau.
+3. Utiliser **Trouver 25 nouveaux prospects** pour les sources gratuites, ou **Préparer une recherche Apify** pour examiner le fournisseur, les exclusions et le budget avant une confirmation payante explicite. L’import CSV, la démo et l’historique restent disponibles sans collecte Apify.
 4. Sélectionner une entreprise et consulter sa fiche : coordonnées, sources et dates. Une absence dans les sources ne prouve pas une absence réelle.
 5. Cliquer **Préparer le prompt Hermès**. Si un site est renseigné et n’a pas encore été analysé, ProspectAI tente d’en collecter les contenus publics. Si la lecture échoue, le dossier et le prompt indiquent explicitement cette limite.
 6. Dans la fenêtre qui s’ouvre, télécharger **Dossier complet · JSON**, puis copier le prompt ou télécharger sa version Markdown.
@@ -76,11 +76,11 @@ L’archivage est distinct de **Ne plus contacter**, qui reste conservé. Un lea
 
 Le bouton principal prépare jusqu’à **25 entreprises inédites dans la base**. Il consulte OpenStreetMap et, en France, Sirene ; aucune recherche Apify payante n’est déclenchée. Une collecte gratuite bornée (jusqu’à 250 résultats OSM et trois pages Sirene) alimente une réserve persistante. Chaque clic suivant prélève le lot suivant et exclut les fiches entrées entre-temps, même dans une autre recherche. Un verrou persistant et un identifiant de demande empêchent la consommation concurrente et la répétition accidentelle du même lot.
 
-Les 25 résultats ne sont pas garantis : si la réserve ne contient plus d’entreprise inédite, l’application le dit et s’arrête. Elle ne reprend pas les premières fiches et ne lance pas de collecte payante pour compléter. Modifier la zone ou importer des candidats permet de poursuivre. Un épuisement de cette réserve bornée ne prouve pas l’exhaustivité du marché. Une collecte en erreur n’entraîne aucun repli payant.
+Les 25 résultats ne sont pas garantis : si la réserve ne contient plus d’entreprise inédite, l’application le dit et s’arrête. Elle ne reprend pas les premières fiches et ne lance pas de collecte payante pour compléter. Modifier la zone ou importer des candidats permet de poursuivre. Un épuisement de cette réserve bornée ne prouve pas l’exhaustivité du marché. Une collecte en erreur n’entraîne aucun repli payant. Une réserve épuisée peut être actualisée explicitement avec les sources gratuites ; leurs avertissements restent visibles, même sans résultat. Une collecte Apify en attente ne bloque pas ce parcours gratuit.
 
-Le mot-clé **menuisier** cible aussi le métier `carpenter`/`joiner` dans OSM et le code NAF `43.32A` dans Sirene, sans exiger le mot « menuisier » dans le nom commercial. Les données conservent leurs sources, sans inventer de coordonnées.
+Les métiers français pris en charge, notamment menuisier, plombier, électricien, peintre et couvreur, sont rapprochés des catégories OSM et des codes NAF plutôt que recherchés uniquement dans le nom commercial. Les données conservent leurs sources, sans inventer de coordonnées.
 
-Chaque lot et chaque ancienne recherche sont enregistrés avec critères, sources et date. L’historique regroupe les versions et permet de les ouvrir après un redémarrage. **Revoir les fiches enregistrées** affiche les fiches déjà obtenues pour ces critères sans les qualifier de nouveaux prospects. La réouverture des anciennes recherches Google Maps réunit leurs résultats déjà payés ; toute relance payante par mot-clé, y compris avec `refresh`, est refusée côté serveur.
+Chaque lot et chaque ancienne recherche sont enregistrés avec critères, sources et date. L’historique regroupe les versions et permet de les ouvrir après un redémarrage. **Revoir les fiches enregistrées** affiche les fiches déjà obtenues pour ces critères sans les qualifier de nouveaux prospects. La réouverture des anciennes recherches Google Maps réunit leurs résultats déjà payés ; toute relance payante par mot-clé avec l’ancien Actor Compass, y compris avec `refresh`, reste refusée côté serveur. La nouvelle recherche Apify suit un parcours séparé avec exclusions et confirmation. Ses résultats restent traçables dans le même historique.
 
 Le rapprochement utilise le SIRET/Place ID ou un nom et une adresse compatibles. Un nom, un domaine ou un téléphone seuls ne suffisent pas. Les doublons anciens reconnus sont regroupés sans effacer leurs lignes d’origine ; leurs anciennes références restent résolues vers la fiche unique. Sélection, suivi, opposition de contact et documents sont conservés. `archivedDuplicateProspects` à l’export conserve les fiches redirigées.
 
@@ -94,9 +94,13 @@ Les trois brouillons de prospection encore proposés dans l’application sont d
 
 ## Apify : vérifier les identifiants avant de payer
 
-L’Actor officiel `compass/crawler-google-places` ne propose ni exclusion de Place IDs déjà collectés ni curseur permettant de demander « les 25 suivants ». Un simple filtrage de sa réponse supprime les doublons après leur facturation. La version 1.3 **désactive donc les recherches payantes par mot-clé**, même si l’ancienne interface ou un appel direct à l’API demande une actualisation. Voir [docs/APIFY.md](docs/APIFY.md).
+L'ancien Actor `compass/crawler-google-places` ne propose ni exclusion des Place IDs déjà collectés ni curseur « les 25 suivants ». Ses recherches payantes par mots-clés restent donc bloquées.
 
-L’enrichissement ciblé reste facultatif :
+**Nouvelle recherche avec exclusions :** `benthepythondev/google-maps-business-scraper` expose une liste d'identifiants à exclure et le mode `onlyNew` avec une mémoire stable. Le bouton **Préparer une recherche Apify** affiche les critères, les exclusions connues, le fournisseur et le budget avant confirmation payante. Les résultats exclus ne sont pas facturés comme résultats selon le contrat publié du fournisseur ; un frais de lancement peut subsister, et 25 résultats ne sont pas garantis. La présence de fiches sans identifiant Google et la qualité du prestataire restent des limites explicites. Voir [docs/APIFY.md](docs/APIFY.md) pour les sources officielles et les limites de vérification.
+
+Le budget, le contrat de l'Actor et l'empreinte du plan sont revérifiés avant le lancement. Une requête déjà en cours ou enregistrée ne déclenche pas un deuxième run. Le contrôle **Récupérer la collecte** consulte le même run, y compris après une réponse réseau incertaine.
+
+L’enrichissement ciblé historique avec Compass reste facultatif :
 
 1. Importer des candidats avec une colonne `placeId` contenant leur véritable identifiant Google Maps (format de 27 caractères commençant par `ChIJ` ou `GhIJ`). Les identifiants manquants ou invalides ne permettent pas de paiement.
 2. Sélectionner ces candidats puis **Vérifier un lot Apify avant paiement**. Aucun appel Apify n’est effectué à cette étape.

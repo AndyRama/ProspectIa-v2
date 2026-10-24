@@ -42,6 +42,8 @@ test("Contrat Apify : build vérifié, budget, lancement unique, normalisation e
         data: {
           id: "runTest123456789",
           status: "SUCCEEDED",
+          actId: "nwua9Gu5YrADL7ZDj",
+          finishedAt: "2026-01-01T10:00:00Z",
           defaultDatasetId: "datasetTest",
           usageTotalUsd: 0.182,
         },
@@ -81,6 +83,8 @@ test("Contrat Apify : build vérifié, budget, lancement unique, normalisation e
       engine: "website" as const,
       placeIds: ["ChIJ" + "a".repeat(23)],
     };
+    await assert.rejects(() => startApify('token-test', { ...args, max:26 }), /Plafond/);
+    await assert.rejects(() => startApify('token-test', { ...args, budget:11 }), /Plafond/);
     await assert.rejects(() => startApify("token-test", { ...args, budget: 0.1 }), /budget minimal/);
     assert.equal(calls.filter((c) => c.url.includes("/runs?")).length, 0);
     const first = startApify("token-test", args);
@@ -123,7 +127,7 @@ test("Contrat Apify : build vérifié, budget, lancement unique, normalisation e
     await assert.rejects(() => startApify("token-test", { ...args, placeIds: undefined }), /par mot-clé sont désactivées/);
     assert.equal(calls.length, beforeRepeat);
     globalThis.fetch = async (url: any) => {
-      if (String(url).includes("/runs?")) throw Error("Network timeout");
+      if (String(url).includes("/runs?")) throw Error("Network timeout fixture-sensitive-token");
       if (String(url).endsWith("/builds/default"))
         return new Response(
           JSON.stringify({
@@ -148,7 +152,7 @@ test("Contrat Apify : build vérifié, budget, lancement unique, normalisation e
     };
     await assert.rejects(
       () => startApify("token-test", { ...args, placeIds: ["ChIJ" + "b".repeat(23)] }),
-      /verrou est conservé/,
+      (e) => /verrou est conservé/.test(String(e)) && !String(e).includes('fixture-sensitive-token'),
     );
     assert.ok(await getSetting<any>("apifyPending", null));
     await assert.rejects(() => startApify("token-test", { ...args, placeIds: ["ChIJ" + "c".repeat(23)] }), /déjà en cours/);

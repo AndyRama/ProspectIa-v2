@@ -16,13 +16,57 @@ const site = (url: string) => {
   catch { return ""; }
 };
 
+// Kept pure: importing the Apify lifecycle here would create a DB/search cycle.
+export function canonicalMapsUrl(value: string | undefined): string | undefined {
+  try {
+    const u = new URL(value || "");
+    if (u.protocol !== "https:" || u.username || u.password || u.port ||
+        !/^(?:(?:www|maps)\.)?google\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(u.hostname) ||
+        !/^\/maps(?:\/|$)/.test(u.pathname)) return;
+    u.hash = "";
+    u.pathname = u.pathname.replace(/\/+$/, "");
+    // Drop only known presentation/tracking options; retain unknown selectors.
+    for (const key of [...u.searchParams.keys()])
+      if (/^(?:hl|gl|authuser|entry|g_ep|utm_.+)$/i.test(key)) u.searchParams.delete(key);
+    u.searchParams.sort();
+    if (u.pathname === "/maps" && !u.search) return;
+    return u.href;
+  } catch { return; }
+}
+
+function mapsId(url: string | undefined, pattern: RegExp, queryKey?: string): string | undefined {
+  if (!url) return;
+  const u = new URL(url);
+  const queryId = queryKey ? u.searchParams.get(queryKey) : null;
+  if (queryId && pattern.test(queryId)) return queryId;
+  let path = u.pathname;
+  try { path = decodeURIComponent(path); } catch { return; }
+  const value = path.match(/!1s([^!/?]+)/)?.[1];
+  return value && pattern.test(value) ? value : undefined;
+}
+
 export function sameEstablishment(a: Prospect, b: Prospect): boolean {
   if (a.demo !== b.demo) return false;
   if (a.id === b.id) return true;
-  for (const key of ["siret", "placeId"]) {
-    const x = sourceId(a, key), y = sourceId(b, key);
-    if (x && y) return x === y;
-  }
+  const siretA = sourceId(a, "siret"), siretB = sourceId(b, "siret");
+  if (siretA && siretB) return siretA === siretB;
+  const urlA = canonicalMapsUrl(sourceId(a, "googleMaps")), urlB = canonicalMapsUrl(sourceId(b, "googleMaps"));
+  const placePattern = /^(ChIJ|GhIJ)[A-Za-z0-9_-]{23}$/;
+  const placeA = sourceId(a, "placeId") || mapsId(urlA, placePattern, "query_place_id");
+  const placeB = sourceId(b, "placeId") || mapsId(urlB, placePattern, "query_place_id");
+  if (placeA && placeB) return placeA === placeB;
+  const cidA = sourceId(a, "cid") || (urlA ? new URL(urlA).searchParams.get("cid") : undefined);
+  const cidB = sourceId(b, "cid") || (urlB ? new URL(urlB).searchParams.get("cid") : undefined);
+  // Never coerce a CID through Number: precision already lost cannot be repaired.
+  if (cidA && cidB && /^\d+$/.test(cidA) && /^\d+$/.test(cidB)) return cidA === cidB;
+  const featurePattern = /^0x[0-9a-f]+:0x[0-9a-f]+$/i;
+  const featureA = sourceId(a, "featureId") || mapsId(urlA, featurePattern);
+  const featureB = sourceId(b, "featureId") || mapsId(urlB, featurePattern);
+  if (featureA && featureB && featurePattern.test(featureA) && featurePattern.test(featureB))
+    return featureA.toLowerCase() === featureB.toLowerCase();
+  // Unequal URL representations are not proof of physical difference, but must
+  // not be overridden by the weaker shared-chain name/city/site fallback.
+  if (urlA && urlB) return urlA === urlB;
   if (!compact(a.name) || compact(a.name) !== compact(b.name)) return false;
   if (a.city && b.city && compact(a.city) !== compact(b.city)) return false;
   const x = addressParts(a), y = addressParts(b);
