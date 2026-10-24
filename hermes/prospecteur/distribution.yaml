@@ -1,0 +1,10 @@
+name: prospecteur
+version: 0.1.0
+description: Prospection indépendante, base locale et dossiers sourcés.
+hermes_requires: ">=0.22.0"
+author: AndyRama, Hermes Agent
+distribution_owned:
+  - SOUL.md
+  - skills
+  - README.md
+  - distribution.yaml

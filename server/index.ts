@@ -14,6 +14,7 @@ import { analyze, inspectSite } from "./services/siteAnalyzer";
 import { generateDrafts } from "./services/generators";
 import { startApify, collectApify, acknowledgeApify, verifyApify, recoverApify, } from "./services/apify";
 import { mountAuth, validateHosting } from "./auth";
+import { mountAgent } from "./agent";
 import { buildHermesHandoff } from "./services/handoffs/hermes";
 import { persistResults, resolveSearch, presentSearch, findSavedSearch, shareSearch } from "./searches";
 import { makeQuery, queryForSearch, queryKey } from "./searchQuery";
@@ -21,6 +22,7 @@ import { discoverNext } from "./services/discovery";
 import { planEnrichment, validPlaceId } from "./services/apifyPlan";
 const app = express();
 app.disable("x-powered-by");
+mountAgent(app);
 app.use(express.json({ limit: "2mb" }));
 app.use("/api", (req, res, next) => {
     const origin = req.get("origin");

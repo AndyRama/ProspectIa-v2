@@ -1,0 +1,15 @@
+name: prospectia
+version: 0.1.0
+description: Assistant connecté à la base et aux dossiers ProspectIa-v2.
+hermes_requires: ">=0.22.0"
+author: AndyRama, Hermes Agent
+env_requires:
+  - name: PROSPECTIA_URL
+    description: Racine HTTPS de votre application après déploiement de l’API agent.
+  - name: PROSPECTIA_AGENT_TOKEN
+    description: Clé dédiée créée localement ; jamais transmise dans le chat.
+distribution_owned:
+  - SOUL.md
+  - skills
+  - README.md
+  - distribution.yaml
