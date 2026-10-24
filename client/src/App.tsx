@@ -26,6 +26,8 @@ import {
   Sparkles,
   Phone,
   FileText,
+  Archive,
+  ArchiveRestore,
   ArrowDownWideNarrow,
   Settings2,
   Menu,
@@ -51,6 +53,7 @@ import HermesPrompt from "./HermesPrompt";
 import { makeQuery, queryForSearch, queryKey } from "../../server/searchQuery";
 type Page =
   | "search"
+  | "leads"
   | "selection"
   | "drafts"
   | "handoffs"
@@ -150,6 +153,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     [webFilter, setWebFilter] = useState("all"),
     [socialFilter, setSocialFilter] = useState(false);
   const [runRecovery, setRunRecovery] = useState("");
+  const [archiveFilter, setArchiveFilter] = useState("all");
   const [enrichment, setEnrichment] = useState<{ ids: string[]; plan: { planId: string; candidates: { name: string; placeId: string }[]; excluded: number; missing: number; remaining: number; message: string } } | null>(null);
   const prepareEnrichment = (ids: string[]) => task("plan", async () => {
     const plan = await api("/apify/plan", "POST", { prospectIds: ids });
@@ -194,19 +198,37 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     }
   }
   const go = (p: Page) => {
+    if (p === "leads") {
+      setArchiveFilter("all"); setFilterEmail("all"); setFit("all"); setSort("source");
+      setMinRating(""); setMinReviews(""); setWebFilter("all"); setSocialFilter(false);
+    }
     setPage(p);
     setMobile(false);
     setOpened(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const setArchived = (p: Prospect) => task(`archive:${p.id}`, async () => {
+    const archived = !p.archived;
+    await api(`/prospects/${p.id}`, "PATCH", { archived });
+    const updated = await refresh();
+    if (updated.prospects.find((item) => item.id === p.id)?.archived !== archived) {
+      throw new Error("La modification de l’archive n’a pas été confirmée. Réessayez.");
+    }
+    setNotice({ text: archived ? "Lead archivé. Son dossier et son historique sont conservés." : "Lead désarchivé. Il est à nouveau disponible pour la prospection." });
+  });
+  const archiveButton = (p: Prospect) => <button className="button ghost small" disabled={!!busy} aria-busy={busy === `archive:${p.id}`} onClick={() => setArchived(p)}>
+    {busy === `archive:${p.id}` ? <LoaderCircle size={14} className="spin" /> : p.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+    {p.archived ? "Désarchiver" : "Archiver"}
+  </button>;
   const toggle = async (p: Prospect, selected = !p.selected) => {
+    if (p.archived) return;
     await api(`/prospects/${p.id}`, "PATCH", { selected });
     await refresh();
   };
   const selectMany = (items: Prospect[]) =>
     task("selection", async () => {
       await Promise.all(
-        items.map((p) =>
+        items.filter((p) => !p.archived).map((p) =>
           api(`/prospects/${p.id}`, "PATCH", { selected: true }),
         ),
       );
@@ -294,15 +316,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         )}
       </div>
     );
-  let rows = state.prospects.filter((p) =>
-    page === "selection"
-      ? p.selected
-      : activeIds
-        ? activeIds.includes(p.id)
-        : true,
+  const canonical = state.prospects.filter((p) => !p.duplicateOf);
+  let rows = canonical.filter((p) =>
+    page === "leads"
+      ? archiveFilter === "all" || (archiveFilter === "archived" ? !!p.archived : !p.archived)
+      : !p.archived && (page === "selection" ? p.selected : !activeIds || activeIds.includes(p.id)),
   );
   const total = rows.length;
-  rows = rows.filter(
+  rows = page === "leads" ? rows : rows.filter(
     (p) =>
       (fit !== "opportunities" || opportunity(p, engine)) &&
       (filterEmail === "all" ||
@@ -318,11 +339,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     rows.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
   if (sort === "reviews")
     rows.sort((a, b) => (b.reviews ?? -1) - (a.reviews ?? -1));
-  if (sort === "source" && activeIds) {
+  if (page !== "leads" && sort === "source" && activeIds) {
     const order = new Map(activeIds.map((id, index) => [id, index]));
     rows.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
   }
-  const selected = state.prospects.filter((p) => p.selected);
+  const selected = canonical.filter((p) => p.selected && !p.archived);
+  const selectableRows = rows.filter((p) => !p.archived);
+  const archivedCount = canonical.filter((p) => p.archived).length;
   const currentQuery = makeQuery({ city, activity, keyword, paid: false, engine });
   const savedSearch = state.searches.find((s) => {
     const q = queryForSearch(s); return q && queryKey({ ...q, paid: false }) === queryKey(currentQuery);
@@ -337,6 +360,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const demoShown = rows.some((p) => p.demo);
   const pageNames: Record<Page, string> = {
     search: "Recherche de prospects",
+    leads: "Tous les leads",
     selection: "Ma sélection",
     drafts: "Mes brouillons",
     handoffs: "Prompts pour Hermès",
@@ -351,6 +375,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   ) => (
     <button
       className={"nav-item " + (page === id ? "active" : "")}
+      aria-current={page === id ? "page" : undefined}
       onClick={() => go(id)}
     >
       <Icon size={19} />
@@ -391,6 +416,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         <div className="nav-label">VOTRE PROSPECTION</div>
         <nav>
           {nav("search", Search, "Trouver des prospects")}
+          {nav("leads", Store, "Tous les leads", canonical.length)}
           {nav("selection", Bookmark, "Ma sélection", selected.length)}
           {nav("drafts", Mail, "Mes brouillons", state.drafts.length)}
         </nav>
@@ -812,8 +838,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </div>
             </>
           )}
-          {(page === "selection" || page === "search") && (
+          {(page === "selection" || page === "search" || page === "leads") && (
             <>
+              {page === "leads" && (
+                <>
+                  <div className="page-hero"><div><div className="eyebrow">VOTRE RÉPERTOIRE</div><h1>Tous les leads</h1><p>Toutes vos entreprises enregistrées, toutes villes et tous moteurs confondus. Archiver conserve le dossier et son historique, sans supprimer les données.</p></div><Store className="hero-icon" size={45} /></div>
+                  <div className="tabs" aria-label="Filtrer les leads">
+                    {[["all", "Tous", canonical.length], ["active", "Actifs", canonical.length - archivedCount], ["archived", "Archivés", archivedCount]].map(([id, label, count]) => <button key={id} aria-pressed={archiveFilter === id} className={archiveFilter === id ? "active" : ""} onClick={() => setArchiveFilter(String(id))}>{label} {count}</button>)}
+                  </div>
+                </>
+              )}
               {page === "selection" && (
                 <div className="page-hero">
                   <div>
@@ -840,16 +874,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 <h3>
                   {page === "selection"
                     ? "Ma sélection"
-                    : "Votre terrain d’opportunités"}{" "}
+                    : page === "leads" ? "Entreprises enregistrées" : "Votre terrain d’opportunités"}{" "}
                   <span className="count">{rows.length}</span>
                 </h3>
                 <span>
                   <MapPin size={13} />
-                  {city}
+                  {page === "leads" ? "Toutes les villes" : city}
                 </span>
               </div>
               <section className="card table-card">
-                <div className="table-toolbar">
+                {page !== "leads" && <div className="table-toolbar">
                   <label>
                     Adéquation à mon entreprise
                     <select
@@ -890,6 +924,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     </select>
                   </div>
                 </div>
+                }
                 <div className="table-scroll">
                   <table>
                     <thead>
@@ -899,12 +934,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                             type="checkbox"
                             aria-label="Sélectionner toutes les entreprises affichées"
                             checked={
-                              rows.length > 0 && rows.every((p) => p.selected)
+                              selectableRows.length > 0 && selectableRows.every((p) => p.selected)
                             }
+                            disabled={!!busy || !selectableRows.length}
                             onChange={(e) =>
                               task("selection", async () => {
                                 await Promise.all(
-                                  rows.map((p) =>
+                                  selectableRows.map((p) =>
                                     api(`/prospects/${p.id}`, "PATCH", {
                                       selected: e.target.checked,
                                     }),
@@ -919,7 +955,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                         <th>PRÉSENCE WEB</th>
                         <th>IDENTIFIANT</th>
                         <th>
-                          {page === "selection" ? "STATUT" : "QUALIFICATION"}
+                          {page === "selection" || page === "leads" ? "STATUT" : "QUALIFICATION"}
                         </th>
                         <th />
                       </tr>
@@ -931,7 +967,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                             <input
                               aria-label={`Sélectionner ${p.name}`}
                               type="checkbox"
-                              checked={p.selected}
+                              checked={!p.archived && p.selected}
+                              disabled={!!busy || !!p.archived}
                               onChange={() =>
                                 task("selection", () => toggle(p))
                               }
@@ -950,6 +987,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                                 <small>
                                   {p.category} <i>·</i> {p.city}
                                   {p.demo && <b className="demo-tag">DÉMO</b>}
+                                  {p.archived && <b className="demo-tag">Archivé</b>}
                                 </small>
                               </span>
                             </button>
@@ -991,11 +1029,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               </select>
                             ) : (
                               <span className="qualification">
-                                {opportunity(p, engine)
+                                {page === "leads" ? p.status : opportunity(p, engine)
                                   ? engines[engine].name
                                   : "À qualifier"}
                                 <small>
-                                  {p.audit
+                                  {page === "leads" ? engines[p.engine].short : p.audit
                                     ? "Analyse indicative"
                                     : "À confirmer avec le professionnel"}
                                 </small>
@@ -1010,6 +1048,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               Voir la fiche
                               <ArrowRight size={15} />
                             </button>
+                            {archiveButton(p)}
                           </td>
                         </tr>
                       ))}
@@ -1172,7 +1211,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     onDrop={(e) => {
                       e.preventDefault();
                       const id = e.dataTransfer.getData("text/plain");
-                      if (!state.prospects.some((p) => p.id === id)) return;
+                      if (!canonical.some((p) => p.id === id && !p.archived)) return;
                       task("status", async () => {
                         await api(`/prospects/${id}`, "PATCH", {
                           status,
@@ -1313,7 +1352,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   className={
                     "button small " + (opened.selected ? "light" : "ghost")
                   }
-                  disabled={!!busy}
+                  disabled={!!busy || !!opened.archived}
                   onClick={() => task("selection", () => toggle(opened))}
                 >
                   {opened.selected ? <Check size={13} /> : <Plus size={13} />}{" "}
@@ -1321,6 +1360,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </button>
               </div>
               <h2>{opened.name}</h2>
+              <div className="button-group">{archiveButton(opened)}{opened.archived && <span className="demo-tag">Archivé</span>}</div>
+              {opened.archived && <p className="source-note">Dossier conservé. Désarchivez ce lead pour le sélectionner ou préparer une nouvelle proposition.</p>}
               <p className="address">
                 <MapPin size={13} />
                 {opened.address}
@@ -1502,7 +1543,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </section>
               <button
                 className="button ghost full"
-                disabled={!!busy || !opened.website || opened.demo}
+                disabled={!!busy || !!opened.archived || !opened.website || opened.demo}
                 onClick={() =>
                   task("analyze", async () => {
                     await api(`/prospects/${opened.id}/analyze`, "POST", {});
@@ -1528,7 +1569,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <div className="drawer-actions">
               <button
                 className="button ghost full"
-                disabled={!!busy}
+                disabled={!!busy || !!opened.archived}
                 onClick={() => createHandoff(opened)}
               >
                 <Monitor size={16} />
@@ -1538,7 +1579,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </button>
               <button
                 className="button primary full"
-                disabled={!!busy}
+                disabled={!!busy || !!opened.archived}
                 onClick={() => generate(opened)}
               >
                 {busy === "drafts" ? (

@@ -212,6 +212,7 @@ app.patch("/api/prospects/:id", async (req, res) => {
     const patch = z
         .object({
         selected: z.boolean().optional(),
+        archived: z.boolean().optional(),
         doNotContact: z.boolean().optional(),
         status: z
             .enum(["À contacter", "Contacté", "En discussion", "Gagné", "Perdu"])
@@ -219,18 +220,30 @@ app.patch("/api/prospects/:id", async (req, res) => {
     })
         .parse(req.body);
     const updated = { ...p, ...patch };
+    if (updated.archived && patch.selected === true) throw Error("Prospect archivé : restaurez la fiche avant de la sélectionner.");
+    if (updated.archived) updated.selected = false;
     if (patch.doNotContact === true && p.email) await db.execute({ sql: "INSERT OR IGNORE INTO suppressions VALUES(?,?)", args: [p.email.trim().toLowerCase(), new Date().toISOString()] });
     if (patch.doNotContact === false && p.email) await db.execute({ sql: "DELETE FROM suppressions WHERE email=?", args: [p.email.trim().toLowerCase()] });
     (await saveProspect(updated));
     res.json(updated);
+});
+// Archive is independent of demo/contact policy: historical reads remain available.
+app.post(["/api/prospects/:id/analyze", "/api/prospects/:id/drafts", "/api/prospects/:id/handoffs"], async (req, res, next) => {
+    const p = await prospect(String(req.params.id));
+    if (p?.archived) return res.status(403).json({ error: "Prospect archivé : restaurez la fiche avant de créer de nouveaux éléments." });
+    next();
 });
 app.post("/api/prospects/:id/analyze", async (req, res) => {
     const p = (await prospect(req.params.id));
     if (!p)
         return res.status(404).json({ error: "Prospect introuvable." });
     const updated = await analyze(p);
-    (await saveProspect(updated));
-    res.json(updated);
+    const current = await prospect(p.id);
+    if (!current) return res.status(404).json({ error: "Prospect introuvable." });
+    if (current.archived) return res.status(403).json({ error: "Prospect archivé : analyse non enregistrée." });
+    const result = { ...current, audit: updated.audit, email: updated.email, phone: updated.phone, socials: updated.socials, fields: updated.fields, webStatus: updated.webStatus };
+    (await saveProspect(result));
+    res.json(result);
 });
 app.post("/api/prospects/:id/drafts", async (req, res) => {
     const p = (await prospect(req.params.id));
@@ -238,6 +251,7 @@ app.post("/api/prospects/:id/drafts", async (req, res) => {
         return res.status(404).json({ error: "Prospect introuvable." });
     const engine = engineSchema.parse(req.body.engine);
     const drafts = await generateDrafts(p, (await getSetting<Business>("business", defaultBusiness)), engine);
+    if ((await prospect(p.id))?.archived) return res.status(403).json({ error: "Prospect archivé : brouillons non enregistrés." });
     await saveDrafts(drafts);
     res.json({ drafts, mode: "Modèles locaux · sans API IA" });
 });
@@ -245,6 +259,7 @@ app.patch("/api/drafts/:id", async (req, res) => {
     const d = (await list<Draft>("drafts")).find((x) => x.id === req.params.id);
     if (!d)
         return res.status(404).json({ error: "Brouillon introuvable." });
+    if ((await prospect(d.prospectId))?.archived) return res.status(403).json({ error: "Prospect archivé : modification du brouillon interdite." });
     const patch = z
         .object({ subject: z.string().max(500), body: z.string().max(20000) })
         .parse(req.body);
@@ -262,10 +277,22 @@ app.post("/api/prospects/:id/handoffs", async (req, res) => {
   const engine = engineSchema.parse(req.body.engine);
   const warnings: string[] = [];
   if (p.website && !p.demo && !p.audit) {
-    try { p = await analyze(p); await saveProspect(p); }
+    try {
+      const updated = await analyze(p);
+      const current = await prospect(p.id);
+      if (!current) return res.status(404).json({ error: "Prospect introuvable." });
+      if (current.archived) return res.status(403).json({ error: "Prospect archivé : analyse et transfert non enregistrés." });
+      p = { ...current, audit: updated.audit, email: updated.email, phone: updated.phone, socials: updated.socials, fields: updated.fields, webStatus: updated.webStatus };
+      await saveProspect(p);
+    }
     catch { warnings.push("Le site n’a pas pu être analysé. Hermès devra consulter la source ou demander les contenus manquants."); }
   }
-  const handoff = buildHermesHandoff(p, await getSetting<Business>("business", defaultBusiness), engine, warnings);
+  const business = await getSetting<Business>("business", defaultBusiness);
+  const current = await prospect(p.id);
+  if (!current) return res.status(404).json({ error: "Prospect introuvable." });
+  if (current.archived) return res.status(403).json({ error: "Prospect archivé : transfert non enregistré." });
+  p = current;
+  const handoff = buildHermesHandoff(p, business, engine, warnings);
   await db.execute({ sql: "INSERT INTO handoffs VALUES(?,?,?)", args: [handoff.id, p.id, JSON.stringify(handoff)] });
   const { dossier, ...result } = handoff;
   res.json(result);
