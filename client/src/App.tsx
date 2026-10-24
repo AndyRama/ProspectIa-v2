@@ -150,6 +150,31 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     [webFilter, setWebFilter] = useState("all"),
     [socialFilter, setSocialFilter] = useState(false);
   const [runRecovery, setRunRecovery] = useState("");
+  const [freeResult, setFreeResult] = useState<{ exhausted: boolean; warnings: string[] }>({ exhausted: false, warnings: [] });
+  const busyRef = useRef(false);
+  const [discovery, setDiscovery] = useState<{ plan: { planId: string; actor: string; city: string; query: string; max: number; budget: number; excludedCount: number; unidentifiedCount: number; warnings: string[] }; input: { city: string; activity: string; keyword: string; engine: Engine; max: number; budget: number }; requestId: string } | null>(null);
+  const discoveryInput = { city, activity, keyword, engine, max: Math.min(25, state?.settings.limits.max ?? 25), budget };
+  const criteriaKey = JSON.stringify(discoveryInput);
+  const criteriaRef = useRef(criteriaKey);
+  criteriaRef.current = criteriaKey;
+  useEffect(() => { setDiscovery(null); }, [criteriaKey]);
+  const prepareDiscovery = () => task("discovery-plan", async () => {
+    const key = criteriaKey;
+    const plan = await api("/apify/discovery/plan", "POST", discoveryInput);
+    if (criteriaRef.current === key) setDiscovery({ plan, input: discoveryInput, requestId: crypto.randomUUID() });
+  });
+  const confirmDiscovery = () => {
+    if (!discovery || busyRef.current || state?.settings.pending || !state?.settings.apifyConfigured || JSON.stringify(discovery.input) !== criteriaRef.current) return;
+    const intention = discovery;
+    return task("discovery-start", async () => {
+      try {
+        receive(await api("/apify/discovery/start", "POST", { ...intention.input, planId: intention.plan.planId, requestId: intention.requestId, confirmed: true }));
+      } finally {
+        setDiscovery(null);
+        await refresh();
+      }
+    });
+  };
   const [enrichment, setEnrichment] = useState<{ ids: string[]; plan: { planId: string; candidates: { name: string; placeId: string }[]; excluded: number; missing: number; remaining: number; message: string } } | null>(null);
   const prepareEnrichment = (ids: string[]) => task("plan", async () => {
     const plan = await api("/apify/plan", "POST", { prospectIds: ids });
@@ -182,7 +207,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     return () => clearTimeout(t);
   }, [notice]);
   async function task(name: string, fn: () => Promise<void>) {
-    if (busy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(name);
     try {
       await fn();
@@ -190,6 +216,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       setNotice({ text: (e as Error).message, error: true });
       await refresh().catch(() => {});
     } finally {
+      busyRef.current = false;
       setBusy("");
     }
   }
@@ -223,7 +250,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const receive = (r: any) => {
     if (r.pending) {
       setNotice({
-        text: "Collecte Apify lancée. Utilisez « Récupérer la collecte » pour consulter son avancement, sans relancer ni repayer.",
+        text: r.status === "FINALIZING" ? "Résultats Apify en finalisation ; coût en cours de mise à jour. Récupérez ce même run plus tard, sans relancer." : "Collecte Apify lancée. Utilisez « Récupérer la collecte » pour consulter son avancement, sans relancer ni repayer.",
       });
       return;
     }
@@ -233,24 +260,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     setActiveIds(r.search.ids);
     setSearchRecord(r.search);
     setNotice({
-      text: r.cached ? `${r.search.count} fiche(s) enregistrées réouvertes. Aucune nouvelle collecte ni dépense.` : r.enriched ? `${r.search.count} fiche(s) enrichies par identifiants validés. Coût retourné par Apify : ${r.search.cost === null ? "non communiqué" : `${r.search.cost.toFixed(4)} USD`}.` : `${r.search.count} fiche(s) uniques · ${r.search.newCount ?? r.search.count} nouvelle(s) · ${r.search.knownCount ?? 0} déjà connue(s).${r.remaining !== undefined ? ` ${r.remaining} candidat(s) en réserve. Aucun crédit Apify dépensé.` : ""}`,
+      text: r.cached ? `${r.search.count} fiche(s) enregistrées réouvertes. Aucune nouvelle collecte ni dépense.` : r.search.provider === "Apify" ? `${r.search.count} fiche(s) ${r.enriched ? "enrichies par identifiants validés" : "collectées par Apify · benthepythondev/google-maps-business-scraper"}. Coût retourné par Apify : ${r.search.cost === null ? "non communiqué" : `${r.search.cost} USD`}.` : `${r.search.count} fiche(s) uniques · ${r.search.newCount ?? r.search.count} nouvelle(s) · ${r.search.knownCount ?? 0} déjà connue(s).${r.remaining !== undefined ? ` ${r.remaining} candidat(s) en réserve. Aucun crédit Apify dépensé.` : ""}`,
     });
   };
-  const doSearch = () =>
+  const doSearch = (refreshPool = false) =>
     task("search", async () => {
-      receive(
-        await api("/search", "POST", {
-          city,
-          activity,
-          keyword,
-          paid: false,
-          max: 25,
-          budget,
-          engine,
-          intent: "discover",
-          requestId: crypto.randomUUID(),
-        }),
-      );
+      const result = await api("/search", "POST", {
+        city, activity, keyword, paid: false, max: 25, budget, engine,
+        intent: "discover", requestId: crypto.randomUUID(), refreshPool,
+      });
+      setFreeResult({ exhausted: !!result.exhausted, warnings: result.warnings || result.search?.warnings || [] });
+      receive(result);
       await refresh();
     });
   const demo = () =>
@@ -544,7 +564,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     </label>
                     <button
                       className="button primary search-button"
-                      disabled={!!busy || !!state.settings.pending}
+                      disabled={!!busy}
                     >
                       {busy === "search" ? (
                         <LoaderCircle size={17} className="spin" />
@@ -557,6 +577,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     </button>
                   </div>
                   <div className="saved-search-note">
+                    {freeResult.exhausted && <button type="button" className="button ghost small" disabled={!!busy} onClick={() => doSearch(true)}>Actualiser les sources gratuites</button>}
                     <p><strong>25 nouveaux au maximum, jamais une ancienne liste relancée.</strong> Les {state.prospects.filter((p) => !p.demo).length} entreprises déjà enregistrées sont exclues. La recherche utilise les sources gratuites ; les candidats restants sont gardés pour le lot suivant.</p>
                     {savedSearch && <button type="button" className="button ghost small" disabled={!!busy} onClick={() => {
                       setActiveIds(scopeIds); setSearchRecord({ ...savedSearch, ids: scopeIds, count: scopeIds.length });
@@ -584,7 +605,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                       </button>
                     ))}
                   </div>
-                  <p className="free-note"><ShieldCheck size={14} /> Aucun appel Google Maps payant depuis cette recherche. Les relances par mot-clé ont été bloquées pour éviter de repayer les mêmes entreprises.</p>
+                  <p className="free-note"><ShieldCheck size={14} /> Le bouton gratuit n’utilise aucun crédit Apify. L’ancien Actor Compass reste bloqué pour les recherches payantes par mot-clé.</p>
+                  <div className="saved-search-note">
+                    <label>Budget d’arrêt Apify (USD)<input aria-label="Budget d’arrêt Apify (USD)" type="number" min="0.05" step="0.05" max={Math.min(10, state.settings.limits.budget)} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label>
+                    <button type="button" className="button ghost" disabled={!!busy || !!state.settings.pending || !Number.isFinite(budget) || budget < 0.05 || budget > Math.min(10, state.settings.limits.budget) || city.trim().length < 2} onClick={prepareDiscovery}>Préparer une recherche Apify</button>
+                    {!state.settings.apifyConfigured && <button type="button" className="text-link" onClick={() => go("settings")}>Configurer Apify dans les Paramètres</button>}
+                  </div>
                 </form>
                 <div className="search-history">
                   <div>
@@ -601,7 +627,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                           {searchRecord.city} ·{" "}
                           {searchRecord.cost === null
                             ? "coût non communiqué"
-                            : `${searchRecord.cost.toFixed(3)} USD`}
+                            : `${searchRecord.cost} USD`}
                           .
                         </span>
                         <button
@@ -639,7 +665,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   <button className="button ghost small" onClick={() => go("settings")}>Configurer mon business <ArrowRight size={14} /></button>
                 </div>
               )}
-              {!!searchRecord?.warnings?.length && (
+              {!!freeResult.warnings.length && <div className="banner" role="status"><AlertCircle size={18} /><span>{freeResult.warnings.join(" · ")}</span></div>}
+              {!freeResult.warnings.length && !!searchRecord?.warnings?.length && (
                 <div className="banner" role="status"><AlertCircle size={18} /><span>Résultats partiels. {searchRecord.warnings.join(" · ")}</span></div>
               )}
               {state.settings.pending && (
@@ -1628,6 +1655,20 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           }
         />
       )}
+      {discovery && <Modal title="Recherche Apify · vérifier avant de payer" onClose={() => setDiscovery(null)}>
+        <p><strong>{discovery.plan.city} · {typeof discovery.plan.query === "string" ? discovery.plan.query : discovery.input.keyword || activityLabel(discovery.input.activity)}</strong></p>
+        <p>Maximum demandé : {discovery.plan.max} entreprises (25 au maximum). Budget d’arrêt demandé : {discovery.plan.budget.toFixed(2)} USD.</p>
+        <p>Fournisseur : Apify · Actor <code>benthepythondev/google-maps-business-scraper</code>.</p>
+        <p>{discovery.plan.excludedCount} identifiants ou URL connus exclus avant facturation. {discovery.plan.unidentifiedCount} fiches sans identité Google exploitable : tous les doublons physiques ne peuvent pas être garantis exclus.</p>
+        <p>La mémoire fournisseur « only-new » et les exclusions sont transmises avant facturation des résultats. Les 25 résultats ne sont pas garantis. Des frais de lancement sont possibles même avec 0 résultat.</p>
+        <p>Le budget est un seuil d’arrêt transmis à Apify, pas un plafond absolu de facture. Cet aperçu est local : aucune collecte n’est lancée.</p>
+        {discovery.plan.warnings.map((warning, i) => <p key={i}>{warning}</p>)}
+        <label>Modifier le budget (invalide cet aperçu)<input aria-label="Modifier le budget Apify" type="number" min="0.05" max={state.settings.limits.budget} step="0.05" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label>
+        <div className="button-group">
+          <button className="button ghost" onClick={() => setDiscovery(null)}>Annuler</button>
+          {state.settings.apifyConfigured ? <button className="button primary" disabled={!!busy || !!state.settings.pending || criteriaKey !== JSON.stringify(discovery.input)} onClick={confirmDiscovery}>Confirmer et lancer la collecte Apify</button> : <button className="button primary" onClick={() => { setDiscovery(null); go("settings"); }}>Configurer Apify dans les Paramètres</button>}
+        </div>
+      </Modal>}
       {enrichment && <Modal title="Apify · vérifier avant de payer" onClose={() => setEnrichment(null)}>
         <p>{enrichment.plan.message}</p>
         <p>{enrichment.plan.excluded} déjà collecté(s) ou réservé(s) exclu(s) · {enrichment.plan.missing} sans identifiant exploitable · {enrichment.plan.remaining} pour un lot ultérieur.</p>
@@ -2037,8 +2078,7 @@ function SettingsPage({
             <div className="banner">
               <ShieldCheck size={19} />
               <p>
-                Les recherches par mot-clé sont gratuites. Apify exige un lot
-                d’identifiants inédits vérifiés avant paiement, puis votre clic.
+                Les sources gratuites restent indépendantes d’Apify. La recherche Apify utilise l’Actor benthepythondev/google-maps-business-scraper : mémoire only-new et exclusions avant facturation des résultats, puis votre confirmation explicite. Les 25 résultats ne sont pas garantis ; des frais de lancement restent possibles même avec 0 résultat. L’enrichissement ciblé historique utilise Compass avec des identifiants validés.
                 Le budget est transmis comme seuil d’arrêt à
                 Apify ; un événement facturable peut dépasser ce seuil. La
                 collecte est verrouillée si le schéma ou la tarification n’est
