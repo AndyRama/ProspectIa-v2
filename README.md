@@ -64,6 +64,14 @@ Pour un site, le prompt demande un inventaire des contenus et une comparaison av
 
 Ces consignes constituent un **document de travail**, pas un contrôle technique sur un service tiers. Le parcours manuel n’établit aucune connexion à Hermès et ne peut pas vérifier ses actions. L’API agent optionnelle décrite plus haut autorise un client Hermes authentifié à travailler sur les données de l’application ; elle ne pilote pas elle-même cet agent. La capacité à lire les pièces jointes, naviguer, coder, mémoriser ou publier dépend de votre environnement Hermès.
 
+## Tous les leads et archivage
+
+Le bouton **Tous les leads** ouvre la liste complète des entreprises enregistrées, indépendamment de la recherche ou du moteur affiché auparavant. Les vues Tous, Actifs et Archivés permettent de retrouver les fiches conservées.
+
+**Archiver** signifie ne plus travailler ce lead en prospection : la fiche est désélectionnée et les nouvelles actions de prospection sont bloquées. Les coordonnées, sources, statuts commerciaux, brouillons, dossiers et références d’historique ne sont pas supprimés. **Désarchiver** remet la fiche parmi les actives sans la sélectionner automatiquement ni lever une opposition de contact.
+
+L’archivage est distinct de **Ne plus contacter**, qui reste conservé. Un lead archivé reste connu du moteur : une nouvelle recherche ou un import ne doit pas le recréer comme nouveau lead ni le réactiver. Aucun envoi ou paiement n’est déclenché par l’archivage/restauration.
+
 ## Lots de 25 sans recommencer les mêmes entreprises
 
 Le bouton principal prépare jusqu’à **25 entreprises inédites dans la base**. Il consulte OpenStreetMap et, en France, Sirene ; aucune recherche Apify payante n’est déclenchée. Une collecte gratuite bornée (jusqu’à 250 résultats OSM et trois pages Sirene) alimente une réserve persistante. Chaque clic suivant prélève le lot suivant et exclut les fiches entrées entre-temps, même dans une autre recherche. Un verrou persistant et un identifiant de demande empêchent la consommation concurrente et la répétition accidentelle du même lot.

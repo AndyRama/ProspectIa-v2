@@ -25,6 +25,7 @@ class AgentError extends Error {
 async function writable(id: string) {
   const p = await prospect(id);
   if (!p) throw new AgentError(404, "Prospect introuvable.");
+  if (p.archived) throw new AgentError(403, "Écriture interdite : prospect archivé.");
   const suppressed = p.email && (await db.execute({ sql: "SELECT 1 FROM suppressions WHERE email=?", args: [p.email.trim().toLowerCase()] })).rows.length;
   if (p.demo || p.doNotContact || suppressed) throw new AgentError(403, "Écriture interdite : démonstration ou opposition au contact.");
   return p;
