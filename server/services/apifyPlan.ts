@@ -22,6 +22,7 @@ export async function planEnrichment(prospectIds: string[]) {
   const seen = new Set<string>();
   for (const id of new Set(prospectIds)) {
     const p = await prospect(id), placeId = p?.fields.placeId?.value || "";
+    if (p?.archived) { excluded++; continue; }
     if (!p || p.demo || !validPlaceId(placeId)) { missing++; continue; }
     if (billed.has(placeId) || p.id.startsWith("apify-") || seen.has(placeId)) { excluded++; continue; }
     seen.add(placeId); candidates.push({ prospectId: p.id, name: p.name, placeId });

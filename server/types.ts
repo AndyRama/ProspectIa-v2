@@ -37,6 +37,8 @@ export interface Prospect {
   engine: Engine;
   audit?: Audit;
   doNotContact?: boolean;
+  /** Retiré de la prospection, sans effacer le suivi ni l’opposition au contact. */
+  archived?: boolean;
   /** Ancienne fiche conservée, redirigée vers la fiche unique. */
   duplicateOf?: string;
 }

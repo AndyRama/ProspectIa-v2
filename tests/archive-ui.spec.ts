@@ -1,0 +1,171 @@
+import { test, expect, type APIRequestContext } from "@playwright/test";
+import { createClient } from "@libsql/client";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const evidence = "/opt/data/output/prospect-archive";
+async function seed(request: APIRequestContext) {
+  await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } });
+  const first = await (await request.post("/api/import", { data: { text: "name,city,category,address\nAtelier Fictif Bordeaux,Bordeaux,Artisan,10 rue fictive Bordeaux" } })).json();
+  const second = await (await request.post("/api/import", { data: { text: "name,city,category,address\nCafé Fictif Lyon,Lyon,Restaurant,20 rue fictive Lyon" } })).json();
+  const ids = [first.prospects[0].id, second.prospects[0].id];
+  await request.patch(`/api/prospects/${ids[0]}`, { data: { selected: true, status: "En discussion", doNotContact: true } });
+  const client = createClient({ url: pathToFileURL(path.join(tmpdir(), "prospectai-browser-tests", "prospectai.sqlite")).href });
+  const search = { id: "archive-ui-subset", city: "Bordeaux", activity: "artisan", keyword: "", provider: "Fixture", engine: "voice", count: 1, ids: [ids[0]], cost: 0, createdAt: "2026-10-24T23:00:00Z" };
+  await client.execute({ sql: "INSERT INTO searches VALUES(?,?)", args: [search.id, JSON.stringify(search)] });
+  const other = JSON.parse(String((await client.execute({ sql: "SELECT data FROM prospects WHERE id = ?", args: [ids[1]] })).rows[0].data));
+  other.engine = "menu";
+  await client.execute({ sql: "UPDATE prospects SET data = ? WHERE id = ?", args: [JSON.stringify(other), ids[1]] });
+  client.close();
+  return ids;
+}
+
+test("archive waits for persisted readback, disables repeated actions and reports API failures", async ({ page, request }) => {
+  const [id] = await seed(request);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
+  const row = page.locator("tbody tr").filter({ hasText: "Atelier Fictif Bordeaux" });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/prospects/${id}`, async route => {
+    expect(route.request().postDataJSON()).toEqual({ archived: true });
+    await gate;
+    await route.fulfill({ status: 503, json: { error: "Archivage temporairement indisponible" } });
+  });
+  await row.getByRole("button", { name: "Archiver", exact: true }).click();
+  await expect(row.getByRole("button", { name: "Archiver", exact: true })).toBeDisabled();
+  await expect(row.getByRole("button", { name: "Archiver", exact: true })).toHaveAttribute("aria-busy", "true");
+  release();
+  await expect(page.getByRole("alert")).toContainText("Archivage temporairement indisponible");
+  await expect(row.getByRole("button", { name: "Archiver", exact: true })).toBeEnabled();
+  expect((await (await request.get("/api/state")).json()).prospects.find((p: { id: string }) => p.id === id).archived).not.toBe(true);
+  // A successful PATCH response alone must never be reported as persisted success.
+  await page.unroute(`**/api/prospects/${id}`);
+  await page.route(`**/api/prospects/${id}`, route => route.fulfill({ json: { ok: true } }));
+  await row.getByRole("button", { name: "Archiver", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("n’a pas été confirmée");
+  await expect(row.getByText("Archivé", { exact: true })).toHaveCount(0);
+  await page.unroute(`**/api/prospects/${id}`);
+  await row.getByRole("button", { name: "Archiver", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Lead archivé");
+  await expect(row.getByText("Archivé", { exact: true })).toBeVisible();
+});
+
+test("mixed directory bulk selection never submits archived leads", async ({ page, request }) => {
+  const [archivedId, activeId] = await seed(request);
+  await request.patch(`/api/prospects/${archivedId}`, { data: { archived: true } });
+  const selectedRequests: string[] = [];
+  page.on("request", req => {
+    if (req.method() === "PATCH" && req.url().includes("/api/prospects/") && req.postDataJSON().selected) selectedRequests.push(req.url().split("/").pop()!);
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await page.getByLabel("Sélectionner toutes les entreprises affichées").click();
+  await expect(page.getByLabel("Sélectionner toutes les entreprises affichées")).toBeChecked();
+  await expect(page.getByRole("button", { name: "Ma sélection 1", exact: true })).toBeVisible();
+  expect(selectedRequests).toEqual([activeId]);
+  const stored = (await (await request.get("/api/state")).json()).prospects;
+  expect(stored.find((p: { id: string }) => p.id === archivedId).selected).toBe(false);
+  await page.getByRole("button", { name: "Ma sélection 1", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("tbody tr")).toContainText("Café Fictif Lyon");
+});
+
+test("Tous les leads ignores previous search and qualification filters", async ({ page, request }) => {
+  await seed(request);
+  const errors: string[] = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.goto("/");
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("button", { name: "Revoir ces résultats" }).click();
+  await page.getByRole("button", { name: "Avec email", exact: true }).click();
+  await page.getByLabel("Adéquation à mon entreprise").selectOption("opportunities");
+  await page.getByText("Affiner les entreprises affichées", { exact: false }).click();
+  await page.getByLabel("Note minimale").fill("5");
+  await expect(page.locator("tbody tr")).toHaveCount(0);
+  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Tous les leads", exact: true })).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Tous 2", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Actifs 2", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Archivés 0", exact: true })).toBeVisible();
+  const expectInlineActions = async () => {
+    const row = page.locator("tbody tr").first();
+    const view = await row.getByRole("button", { name: "Voir la fiche", exact: true }).boundingBox();
+    const archive = await row.getByRole("button", { name: "Archiver", exact: true }).boundingBox();
+    expect(view).not.toBeNull(); expect(archive).not.toBeNull();
+    expect(Math.abs((view!.y + view!.height / 2) - (archive!.y + archive!.height / 2))).toBeLessThan(2);
+    expect(archive!.x).toBeGreaterThanOrEqual(view!.x + view!.width + 4);
+  };
+  await expectInlineActions();
+  await page.screenshot({ path: `${evidence}/directory-desktop.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".table-scroll").evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expectInlineActions();
+  expect(errors).toEqual([]);
+});
+
+test("archive persists, preserves dossier and excludes prospecting until restored on mobile", async ({ page, request }) => {
+  const [id] = await seed(request);
+  const before = await (await request.get("/api/state")).json();
+  const original = before.prospects.find((p: { id: string }) => p.id === id);
+  const errors: string[] = [];
+  page.on("pageerror", e => errors.push(e.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
+  await page.getByRole("button", { name: "Actifs 2", exact: true }).click();
+  const row = page.locator("tbody tr").filter({ hasText: "Atelier Fictif Bordeaux" });
+  await row.getByRole("button", { name: "Archiver", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Actifs 1", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ma sélection 0", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Archivés 1", exact: true }).click();
+  await expect(row.getByText("Archivé", { exact: true })).toBeVisible();
+  await expect(row.getByLabel("Sélectionner Atelier Fictif Bordeaux")).toBeDisabled();
+  await expect(page.getByLabel("Sélectionner toutes les entreprises affichées")).toBeDisabled();
+  await row.getByRole("button", { name: "Voir la fiche" }).click();
+  const drawer = page.getByRole("complementary", { name: "Fiche prospect" });
+  await expect(drawer.getByRole("button", { name: "Sélectionner", exact: true })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Préparer les 3 variantes" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Préparer le prompt Hermès" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: /Analyser/ })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Désarchiver", exact: true })).toBeEnabled();
+  await page.screenshot({ path: `${evidence}/archived-desktop.png`, fullPage: true });
+  const after = await (await request.get("/api/state")).json();
+  expect(after.prospects.find((p: { id: string }) => p.id === id)).toEqual({ ...original, archived: true, selected: false });
+  expect(after.searches).toEqual(before.searches);
+  await page.reload();
+  await expect(page.locator("tbody tr")).toHaveCount(0);
+  await page.getByRole("button", { name: /Ma sélection/ }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(0);
+  await page.getByRole("button", { name: "Mon atelier et pipeline" }).click();
+  await expect(page.locator(".pipeline-prospect")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Ouvrir le menu" }).click();
+  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.getByRole("button", { name: "Archivés 1", exact: true }).click();
+  await row.getByRole("button", { name: "Voir la fiche" }).click();
+  await expect(drawer.getByRole("button", { name: "Désarchiver", exact: true })).toBeInViewport();
+  await expect.poll(async () => {
+    const box = await drawer.boundingBox();
+    return !!box && box.x >= 0 && box.x + box.width <= 391;
+  }).toBe(true);
+  await page.screenshot({ path: `${evidence}/archived-mobile.png`, fullPage: true, animations: "disabled" });
+  await drawer.getByRole("button", { name: "Désarchiver", exact: true }).click();
+  await expect(drawer.getByRole("button", { name: "Archiver", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Fermer la fiche" }).click();
+  await page.getByRole("button", { name: "Actifs 2", exact: true }).click();
+  await expect(row).toHaveCount(1);
+  await row.getByRole("button", { name: "Archiver", exact: true }).scrollIntoViewIfNeeded();
+  await expect(row.getByRole("button", { name: "Archiver", exact: true })).toBeInViewport();
+  await page.screenshot({ path: `${evidence}/restored-mobile.png`, fullPage: true });
+  await page.reload();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  expect((await (await request.get("/api/state")).json()).prospects.find((p: { id: string }) => p.id === id)).toEqual({ ...original, archived: false, selected: false });
+  expect(errors).toEqual([]);
+});

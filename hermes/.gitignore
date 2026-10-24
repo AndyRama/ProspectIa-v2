@@ -1,0 +1,11 @@
+**/__pycache__/
+**/*.pyc
+**/*.log
+**/node_modules/
+**/workspace/
+**/.data/
+**/*.sqlite*
+**/.env
+**/.env.*
+!**/.env.template
+!**/.env.EXAMPLE

@@ -6,6 +6,14 @@ Le parcours distingue les sources gratuites, la **recherche Apify avec exclusion
 
 Les recherches anciennes, les prospects, les sélections et les statuts restent conservés. Les prompts Hermès et l’offre d’agent personnel sont maintenus. Aucune connexion Gmail, publication de maquette ni API de rédaction n’est utilisée.
 
+## Deux profils Hermes optionnels
+
+- **Prospecteur indépendant** : profil portable dans `hermes/prospecteur`, moteur de recherche et base locale isolés de cette application. Chaque copie démarre sans prospects, business ni secrets.
+- **Prospecteur connecté** : profil dans `hermes/prospectia`, utilisant l’API dédiée `/api/agent` et la **base existante** de ProspectIa-v2. Les fiches, recherches, audits, brouillons personnalisés et dossiers restent dans l’application.
+
+Voir [le contrat et les tests de l’API agent](docs/HERMES-AGENT.md) et les README de chaque profil pour installer les distributions. Cette API est facultative et fermée sans clé technique dédiée ; `APP_PASSWORD` doit rester conforme côté application et n’est jamais donné à l’agent. Aucun envoi, paiement, suppression, changement des paramètres ou publication n’est exposé. L’installation d’un profil ne vaut ni déploiement de l’API, ni connexion réelle, ni routage automatique du coordinateur WhatsApp.
+
+
 ## Installation locale
 
 Node.js **24.10 ou supérieur**, de préférence Node 24 LTS, et npm.
@@ -54,7 +62,15 @@ Le prompt reprend votre fonctionnement : langage simple, trois questions utiles 
 
 Pour un site, le prompt demande un inventaire des contenus et une comparaison avec le résultat livré, avec contrôle mobile et ordinateur. Pour un menu, il interdit d’inventer plats et prix. Pour un agent personnel, il prévoit l’organisation des tâches, des documents et du suivi client, en distinguant un prototype des connexions réellement disponibles.
 
-Ces consignes constituent un **document de travail**, pas un contrôle technique sur un service tiers : ProspectAI n’a aucune connexion à Hermès et ne peut pas vérifier ses actions. La capacité à lire les pièces jointes, naviguer, coder, mémoriser ou publier dépend de votre environnement Hermès.
+Ces consignes constituent un **document de travail**, pas un contrôle technique sur un service tiers. Le parcours manuel n’établit aucune connexion à Hermès et ne peut pas vérifier ses actions. L’API agent optionnelle décrite plus haut autorise un client Hermes authentifié à travailler sur les données de l’application ; elle ne pilote pas elle-même cet agent. La capacité à lire les pièces jointes, naviguer, coder, mémoriser ou publier dépend de votre environnement Hermès.
+
+## Tous les leads et archivage
+
+Le bouton **Tous les leads** ouvre la liste complète des entreprises enregistrées, indépendamment de la recherche ou du moteur affiché auparavant. Les vues Tous, Actifs et Archivés permettent de retrouver les fiches conservées.
+
+**Archiver** signifie ne plus travailler ce lead en prospection : la fiche est désélectionnée et les nouvelles actions de prospection sont bloquées. Les coordonnées, sources, statuts commerciaux, brouillons, dossiers et références d’historique ne sont pas supprimés. **Désarchiver** remet la fiche parmi les actives sans la sélectionner automatiquement ni lever une opposition de contact.
+
+L’archivage est distinct de **Ne plus contacter**, qui reste conservé. Un lead archivé reste connu du moteur : une nouvelle recherche ou un import ne doit pas le recréer comme nouveau lead ni le réactiver. Aucun envoi ou paiement n’est déclenché par l’archivage/restauration.
 
 ## Lots de 25 sans recommencer les mêmes entreprises
 

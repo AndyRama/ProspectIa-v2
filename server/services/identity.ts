@@ -90,7 +90,8 @@ export function mergeProspects(old: Prospect, incoming: Prospect): Prospect {
   const website = incoming.website || old.website;
   const keepAudit = old.audit && site(old.website) === site(website);
   const result: Prospect = { ...old, ...incoming, id: old.id, fields,
-    selected: old.selected || incoming.selected,
+    archived: !!old.archived || !!incoming.archived,
+    selected: (old.archived || incoming.archived) ? false : old.selected || incoming.selected,
     status: old.status !== "À contacter" ? old.status : incoming.status,
     doNotContact: !!old.doNotContact || !!incoming.doNotContact,
     website, email: keepAudit ? old.email || incoming.email : incoming.email || old.email,

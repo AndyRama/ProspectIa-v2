@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "16278988dca04c59f298ff9cbaea8a23f4b8edb7",
+  "files": {
+    "server/db.ts": "aac4680d1b4feedfc45b7157cdcd70daf0be773c3a37cc894ea0757928c95143",
+    "server/types.ts": "1cc17cdf62ee858f8221a601610ee5cf88b242bdc4e8c18f7c15b1f6d10d219d",
+    "server/searchQuery.ts": "a490ef3253ffce9c5d41818d35ea468c373cff2e504292e72306d443f8ccd887",
+    "server/searches.ts": "984008cee86dcbd2c6cfc1e79da5f65bdd88f92fef69d7ce62a426bd7cfe81bf",
+    "server/services/discovery.ts": "b200773f3a8d298bf368b96d1f522a1676998d1bee7fe51772f7af540581181b",
+    "server/services/freeSearch.ts": "a79c62ba58e71c7c2074f723774b659b11a195072d262db0edd6bd1df4f42d75",
+    "server/services/osm.ts": "d2c8c8078a45be2f77ebd7a23454acf50d885e3cb9a96b665c5743ba5d28868a",
+    "server/services/registry.ts": "7cc4431b54266b970875dc6b1502f09cf65754961225009dd4760d62257e6b2e",
+    "server/services/trades.ts": "fb8ebf7de17f167fcc4228b90a5228ed4fa95a594e1873fcccf8fed284d4061e",
+    "server/services/identity.ts": "2258b7a5ab0a75075ab1eecb75de94271a4c2ac80a26251e273bc082e317bf55",
+    "server/services/http.ts": "30b984fe8173f5659c1296ad30b175803de1f2a7aaeb8516ad2274697e6d7dc2",
+    "server/services/siteAnalyzer.ts": "cf68fea6cd3608329cf45c40bd3d9fc88abf822022b64e72bea111d17df2da1b",
+    "server/services/generators/index.ts": "077d8f87b8932e04f12e3b9227585af532986b760f3d2e99b39dd4303cfe4262",
+    "server/services/handoffs/hermes.ts": "2fb277bf647c71d9778f875f819cd5b1025e2538c446a7a55fa51c06cefb1514"
+  }
+}
