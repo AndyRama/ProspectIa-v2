@@ -84,6 +84,25 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       assert.equal((await post("/api/apify/verify", {})).status, 200);
       assert.equal(urls.length, 2);
     });
+    await t.test("HTTP errors return controlled French explanations, never provider details or reconstructed secrets", async () => {
+      for (const message of [
+        "Provider fixture reason: input timeout policy ENOTFOUND. token=hidden-provider-token",
+        'Invalid input {"apiKey":"fixture-secondary-secret"}',
+        'Invalid input {"password":"fixture-secondary-password"}',
+        "Rejected credential fixture-never-real-<b></b>token",
+      ]) {
+        globalThis.fetch = async (url, init) => {
+          if (String(url).startsWith(base)) return realFetch(url, init);
+          return Response.json({ error: { message } }, { status: 400 });
+        };
+        const response = await post("/api/apify/verify", {});
+        assert.equal(response.status, 422);
+        const payload = await response.json();
+        assert.deepEqual(payload, { error: "Apify HTTP 400. Input Apify invalide : vérifiez les paramètres d’entrée." });
+        for (const detail of [message, "hidden-provider-token", "fixture-secondary-secret", "fixture-secondary-password", "fixture-never-real-token", "Détail fournisseur"])
+          assert.ok(!JSON.stringify(payload).includes(detail), detail);
+      }
+    });
     await t.test("mocked discovery start is idempotent and collection persists discovery with actual cost", async () => {
       const properties = Object.fromEntries(Object.entries({ mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
       let posts = 0, finalizing = true;
@@ -113,23 +132,22 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       const reopened = await (await post("/api/apify/discovery/start", input)).json();
       assert.equal(reopened.cached, true); assert.equal(reopened.search.id, collected.search.id); assert.equal(posts, 1);
     });
-    await t.test("free refreshPool is boolean and explicit refill reaches public providers", async () => {
-      const input = { ...args, paid: false, intent: "discover", requestId: "40000000-0000-4000-8000-000000000004" };
+    await t.test("legacy search never collects: new browse, discover and refresh require an Apify plan and confirmation", async () => {
+      const input = { ...args, city: "Ville inédite", paid: false, requestId: "40000000-0000-4000-8000-000000000004" };
       assert.equal((await post("/api/search", { ...input, refreshPool: "true" })).status, 400);
-      const { createHash } = await import("node:crypto");
-      const { queryKey } = await import("../server/searchQuery");
-      const query = { city: args.city, activity: args.activity, keyword: args.keyword, paid: false };
-      await setSetting("discoveryPool:" + createHash("sha256").update(queryKey(query)).digest("hex"), { query, provider: "OpenStreetMap", remaining: [], warnings: ["Réserve témoin épuisée"], createdAt: new Date().toISOString() });
-      let reads = 0;
+      const calls: string[] = [];
       globalThis.fetch = async (url, init) => {
         const u = String(url); if (u.startsWith(base)) return realFetch(url, init);
-        assert.ok(!u.includes("apify")); reads++;
-        return Response.json(u.includes("nominatim") ? [{ lat: "44.84", lon: "-0.58", address: { country_code: "fr" } }] : u.includes("recherche-entreprises") ? { results: [] } : { elements: [{ type: "node", id: 555, lat: 44.84, lon: -0.58, tags: { name: "Menuisier rafraîchi", craft: "carpenter", "addr:street": "rue nouvelle", "addr:city": "Bordeaux" } }] });
+        calls.push(u); throw Error("No provider may be called by legacy search");
       };
-      const exhausted = await (await post("/api/search", { ...input, refreshPool: false })).json();
-      assert.equal(exhausted.exhausted, true); assert.equal(reads, 0); assert.ok(exhausted.warnings.length);
-      const refilled = await (await post("/api/search", { ...input, requestId: "40000000-0000-4000-8000-000000000005", refreshPool: true })).json();
-      assert.ok(reads > 0); assert.equal(refilled.search.count, 1);
+      const before = (await db.execute("SELECT data FROM searches")).rows;
+      for (const patch of [{}, { paid: true }, { intent: "discover" }, { intent: "discover", refreshPool: true }, { refresh: true }, { paid: true, refresh: true }, { intent: "discover", requestId: undefined }]) {
+        const response = await post("/api/search", { ...input, ...patch });
+        assert.equal(response.status, 422, JSON.stringify(patch));
+        assert.match((await response.json()).error, /Apify.*plan.*confirmation/i);
+      }
+      assert.deepEqual(calls, [], "zero Nominatim, Overpass, Sirene or implicit Apify calls");
+      assert.deepEqual((await db.execute("SELECT data FROM searches")).rows, before);
     });
   } finally {
     express.application.listen = listen; globalThis.fetch = realFetch;

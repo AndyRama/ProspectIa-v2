@@ -7,7 +7,6 @@ import { buildHermesHandoff } from "./services/handoffs/hermes";
 import { generateDrafts } from "./services/generators";
 import type { Business, Draft, HermesHandoff, Prospect, Search } from "./types";
 import { presentSearch } from "./searches";
-import { discoverNext } from "./services/discovery";
 
 const discoveryBody = z.object({
   city: z.string().trim().min(2).max(200),
@@ -90,8 +89,8 @@ export function mountAgent(app: Express) {
   });
   router.get("/status", async (_req, res) => res.json({
     ok: true, app: "ProspectIa-v2", apiVersion: 1, business: await business(),
-    capabilities: { read: true, discover: true, analyze: true, drafts: true, handoffs: true, paid: false, send: false, delete: false, settings: false, statusEdits: false },
-    limits: { maxDiscovery: 25, confirmationHeader: "X-ProspectIA-Confirm: write", siteSnapshotIsNotExhaustive: true },
+    capabilities: { read: true, discover: false, analyze: true, drafts: true, handoffs: true, paid: false, send: false, delete: false, settings: false, statusEdits: false },
+    limits: { maxDiscovery: 0, confirmationHeader: "X-ProspectIA-Confirm: write", siteSnapshotIsNotExhaustive: true },
   }));
   router.get("/state", async (_req, res) => {
     const [catalog, searches, drafts, handoffs, context] = await Promise.all([
@@ -124,8 +123,8 @@ export function mountAgent(app: Express) {
     res.json(updated);
   });
   router.post("/discover", async (req, res) => {
-    const args = discoveryBody.parse(req.body);
-    res.json(await discoverNext({ ...args, paid: false }));
+    discoveryBody.parse(req.body);
+    res.status(410).json({ error: "Découverte gratuite retirée. Préparez et confirmez un plan Apify dans l’application utilisateur ; aucun paiement n’est autorisé via l’API agent." });
   });
   router.post(["/prospects/:id/analyze", "/prospects/:id/drafts", "/prospects/:id/handoffs"], async (req, _res, next) => {
     await writable(idSchema.parse(req.params.id)); next();

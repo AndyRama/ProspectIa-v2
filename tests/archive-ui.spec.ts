@@ -5,7 +5,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const evidence = "/opt/data/output/prospect-archive";
+test.beforeEach(async ({ page }) => {
+  await page.route("**/favicon.ico", route => route.fulfill({ status: 204 }));
+});
 async function seed(request: APIRequestContext) {
+  await expect.poll(async () => (await request.get("/api/state")).status()).toBe(200);
   await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } });
   const first = await (await request.post("/api/import", { data: { text: "name,city,category,address\nAtelier Fictif Bordeaux,Bordeaux,Artisan,10 rue fictive Bordeaux" } })).json();
   const second = await (await request.post("/api/import", { data: { text: "name,city,category,address\nCafé Fictif Lyon,Lyon,Restaurant,20 rue fictive Lyon" } })).json();
@@ -74,7 +78,8 @@ test("mixed directory bulk selection never submits archived leads", async ({ pag
 });
 
 test("Tous les leads ignores previous search and qualification filters", async ({ page, request }) => {
-  await seed(request);
+  const [, archivedId] = await seed(request);
+  await request.patch(`/api/prospects/${archivedId}`, { data: { archived: true } });
   const errors: string[] = [];
   page.on("pageerror", e => errors.push(e.message));
   await page.goto("/");
@@ -89,10 +94,15 @@ test("Tous les leads ignores previous search and qualification filters", async (
   await expect(page.getByRole("heading", { name: "Tous les leads", exact: true })).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Tous 2", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Actifs 2", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Archivés 0", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Actifs 1", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Archivés 1", exact: true })).toBeVisible();
+  await expect(page.locator("tbody tr").filter({ hasText: "Atelier Fictif Bordeaux" })).toContainText("Refonte de site");
+  await expect(page.locator("tbody tr").filter({ hasText: "Café Fictif Lyon" })).toContainText("Archivé");
+  await expect(page.locator("tbody tr").filter({ hasText: "Café Fictif Lyon" })).toContainText("Menus & supports");
+  await expect(page.getByLabel("DANS QUELLE VILLE ?")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Préparer une recherche Apify", exact: true })).toHaveCount(0);
   const expectInlineActions = async () => {
-    const row = page.locator("tbody tr").first();
+    const row = page.locator("tbody tr").filter({ hasText: "Atelier Fictif Bordeaux" });
     const view = await row.getByRole("button", { name: "Voir la fiche", exact: true }).boundingBox();
     const archive = await row.getByRole("button", { name: "Archiver", exact: true }).boundingBox();
     expect(view).not.toBeNull(); expect(archive).not.toBeNull();

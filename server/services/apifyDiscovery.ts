@@ -152,6 +152,20 @@ export async function planApifyDiscovery(args: ApifyDiscoveryCriteria) {
     ],
   };
 }
+export class ApifyHttpError extends Error {
+  constructor(public readonly status: number) {
+    const reasons: Record<number, string> = {
+      400: "Input Apify invalide : vérifiez les paramètres d’entrée.",
+      401: "Clé Apify invalide ou expirée.",
+      402: "Crédit Apify insuffisant ou limite de paiement atteinte.",
+      403: "Permission Apify refusée pour cette ressource.",
+      404: "Actor ou ressource Apify introuvable.",
+      429: "Limite de requêtes Apify atteinte.",
+    };
+    super(`Apify HTTP ${status}. ${reasons[status] || "Erreur du service Apify."}`);
+    this.name = "ApifyHttpError";
+  }
+}
 export async function discoveryApi(
   path: string,
   token: string,
@@ -166,10 +180,14 @@ export async function discoveryApi(
       },
       signal: AbortSignal.timeout(30000),
     });
-    if (!response.ok) throw Error(`Apify HTTP ${response.status}.`);
+    if (!response.ok) {
+      // Provider bodies are untrusted and may contain credentials; expose only
+      // the controlled HTTP explanation, without parsing any provider detail.
+      throw new ApifyHttpError(response.status);
+    }
     return await response.json();
   } catch (e) {
-    if (/^Apify HTTP \d+\.$/.test((e as Error).message)) throw e;
+    if (e instanceof ApifyHttpError) throw e;
     throw Error(
       "Réponse Apify incertaine ou invalide ; aucun nouvel essai automatique.",
     );
@@ -329,16 +347,14 @@ export async function startApifyDiscovery(
     await setSetting("apifyPending", { ...pending, runId: result.id });
     return result.id;
   } catch (e) {
-    if (
-      !submitted ||
-      /^Apify HTTP (400|401|402|403|404)\.$/.test((e as Error).message)
-    )
-      await releaseOwnLock();
-    throw Error(
-      (e as Error).message +
-        (submitted
-          ? " Si le lancement est incertain, le verrou est conservé ; récupérez le Run ID sans relancer."
-          : ""),
-    );
+    // Use the typed status, not a full-message regex: provider details must
+    // never turn a definite rejection into an uncertain, permanently held lock.
+    const release = !submitted || (e instanceof ApifyHttpError && [400, 401, 402, 403, 404].includes(e.status));
+    if (release) await releaseOwnLock();
+    const suffix = submitted && !release
+      ? " Si le lancement est incertain, le verrou est conservé ; récupérez le Run ID sans relancer."
+      : "";
+    if (e instanceof ApifyHttpError) { e.message += suffix; throw e; }
+    throw Error((e as Error).message + suffix);
   }
 }

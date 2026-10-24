@@ -202,32 +202,25 @@ test("handoffs persist the complete dossier and reuse old audits with explicit i
   } finally { fixtureMode = false; fixtureFails = false; }
 });
 
-test("discover strictly bounds free batches, rejects paid/unknown fields and reuses durable request IDs without paid network calls", async () => {
+test("agent discovery is retired: valid requests return 410 without providers or writes; payment stays unavailable", async () => {
   const args = { city: "Bordeaux", activity: "artisan", keyword: "menuisier", engine: "website", max: 2, requestId: randomUUID() };
   const count = calls.length;
-  for (const body of [{ ...args, paid: true }, { ...args, paid: false }, { ...args, max: 26 }, { ...args, max: 0 }, { ...args, max: 1.5 }, { ...args, budget: 1 }, { ...args, refresh: true }, { ...args, activity: "invalid" }, { ...args, engine: "bad" }, { ...args, requestId: "bad" }, { ...args, requestId: undefined }, { ...args, city: "x" }, { ...args, city: "x".repeat(201) }, { ...args, keyword: "x".repeat(151) }]) assert.equal((await post("/discover", body)).status, 400);
+  const before = { prospects: await store.list("prospects"), searches: await store.list("searches") };
   assert.equal((await post("/discover", args, { "X-ProspectIA-Confirm": "" })).status, 403);
-  assert.equal(calls.length, count);
-  const oldProspects = await store.list("prospects");
-  fixtureMode = true;
-  try {
-    const responses = await Promise.all([post("/discover", args), post("/discover", args)]);
-    assert.equal(responses[0].status, 200); assert.equal(responses[1].status, 200);
-    const first = await responses[0].json(), second = await responses[1].json();
-    assert.equal(first.search.id, second.search.id);
-    assert.equal(first.prospects.length, 2); assert.equal(first.search.cost, 0); assert.equal(first.search.query.paid, false);
-    assert.equal((await store.list("prospects")).length, oldProspects.length + 2);
-    const after = calls.length;
-    await store.db.close();
-    const retry = await (await post("/discover", args)).json();
-    assert.equal(retry.cached, true); assert.equal(retry.search.id, first.search.id); assert.equal(calls.length, after);
-    const next = await (await post("/discover", { ...args, requestId: randomUUID() })).json();
-    assert.equal(next.prospects.length, 1); assert.equal(calls.length, after);
-    const empty = await (await post("/discover", { ...args, requestId: randomUUID() })).json();
-    assert.equal(empty.exhausted, true); assert.equal(empty.prospects.length, 0);
-    assert.ok(!calls.some((url) => /apify|turso|smtp/i.test(url)));
-    for (const old of oldProspects) assert.deepEqual(await store.prospect((old as Prospect).id), old);
-  } finally { fixtureMode = false; }
+  for (const patch of [{}, { requestId: randomUUID() }]) {
+    const response = await post("/discover", { ...args, ...patch });
+    assert.equal(response.status, 410);
+    assert.match((await response.json()).error, /gratuit.*retir|retir.*gratuit/i);
+  }
+  for (const body of [{ ...args, paid: true }, { ...args, paid: false }, { ...args, budget: 1 }, { ...args, max: 26 }, { ...args, confirmed: true }, { ...args, planId: "a".repeat(64) }]) assert.equal((await post("/discover", body)).status, 400);
+  for (const route of ["/apify/discovery/plan", "/apify/discovery/start", "/apify/enrich"]) assert.equal((await post(route, { ...args, confirmed: true })).status, 404);
+  const status = await (await request("/api/agent/status", { headers: headers() })).json();
+  assert.equal(status.capabilities.discover, false);
+  assert.equal(status.capabilities.paid, false);
+  assert.equal(status.limits.maxDiscovery, 0);
+  assert.equal(calls.length, count, "zero Nominatim, Overpass, Sirene or Apify calls");
+  assert.deepEqual(await store.list("prospects"), before.prospects);
+  assert.deepEqual(await store.list("searches"), before.searches);
 });
 
 test("draft edits persist personalized copy, preserve immutable metadata and enforce canonical-prospect opposition with strict bounds", async () => {
