@@ -64,6 +64,10 @@ Pour un site, le prompt demande un inventaire des contenus et une comparaison av
 
 Ces consignes constituent un **document de travail**, pas un contrôle technique sur un service tiers. Le parcours manuel n’établit aucune connexion à Hermès et ne peut pas vérifier ses actions. L’API agent optionnelle décrite plus haut autorise un client Hermes authentifié à travailler sur les données de l’application ; elle ne pilote pas elle-même cet agent. La capacité à lire les pièces jointes, naviguer, coder, mémoriser ou publier dépend de votre environnement Hermès.
 
+## Import Excel `.xlsx`
+
+Le bouton **Importer Excel** permet de charger une feuille d’entreprises, vérifier son aperçu puis confirmer l’ajout au dashboard et à **Tous les leads**. Un modèle vide est téléchargeable dans la fenêtre d’import. Le nom est obligatoire ; ville, site web, email, téléphone, adresse, catégorie et Place ID sont facultatifs. Maximum : **200 entreprises**, fichier **5 Mio**. Les données existantes et les archives sont conservées ; aucun appel Apify ni paiement. L’import CSV reste disponible. Voir [le guide Excel](docs/IMPORT-EXCEL.md).
+
 ## Tous les leads et archivage
 
 Le bouton **Tous les leads** ouvre la liste complète des entreprises enregistrées, indépendamment de la recherche ou du moteur affiché auparavant. Les vues Tous, Actifs et Archivés permettent de retrouver les fiches conservées.

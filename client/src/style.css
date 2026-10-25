@@ -1642,6 +1642,23 @@ tr:last-child td {
   border-color: #e9cbb0;
   color: #9c6c3b;
 }
+.import-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0;
+}
+.import-actions .import-link { margin: 0; }
+.excel-import { display: grid; gap: 18px; min-width: 0; }
+.excel-import label { min-width: 0; }
+.excel-import input[type="file"] { width: 100%; max-width: 100%; font-size: 13px; }
+.excel-import .button-group { flex-wrap: wrap; }
+.excel-preview { max-height: 340px; border: 1px solid #dce5dc; border-radius: 8px; }
+.excel-preview table { min-width: 720px; width: 100%; }
+.excel-preview th, .excel-preview td { min-width: 140px; padding: 12px 16px; }
+.excel-preview td { max-width: 280px; white-space: normal; overflow-wrap: anywhere; }
+.excel-error { color: #923d30; background: #fff4f0; padding: 12px; border-radius: 8px; overflow-wrap: anywhere; }
 .modal-backdrop {
   position: fixed;
   inset: 0;
