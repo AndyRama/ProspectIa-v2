@@ -31,7 +31,7 @@ test("Parcours bureau et mobile : recherche, fiche, sélection, rédaction, prom
   await expect(
     page.getByRole("button", { name: "Dans ma sélection" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(page.getByRole("complementary", { name: "Fiche prospect" }).getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
   // Old drafts remain editable/readable, without exposing legacy generation as the new UI action.
   const historicalState = await (await request.get("/api/state")).json();
   const selected = historicalState.prospects.find((p: { selected: boolean }) => p.selected);

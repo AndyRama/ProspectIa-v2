@@ -16,7 +16,7 @@ test("real local API: distinct default email and coder refonte prompts, legacy d
   await page.getByRole("button", { name: /Tous les leads/ }).click();
   await page.getByRole("button", { name: "Voir la fiche" }).click();
   await expect(page.getByRole("button", { name: "Préparer le prompt refonte · coder" })).toBeVisible();
-  await page.getByRole("button", { name: "Préparer le prompt email · default" }).click();
+  await page.getByRole("complementary", { name: "Fiche prospect" }).getByRole("button", { name: "Préparer le prompt email · default" }).click();
   await expect(page.getByRole("dialog")).toContainText("default");
   const prompt = page.getByLabel("PROMPT À TRANSMETTRE À HERMÈS");
   await expect(prompt).toHaveValue(/brouillon Gmail/); await expect(prompt).toHaveValue(/J3, J7, J15, J31/);
@@ -44,8 +44,61 @@ test("real local API: distinct default email and coder refonte prompts, legacy d
   expect(newDraftCalls).toEqual([]); expect(errors).toEqual([]);
 });
 
+test("missing email has an accessible list action and can be completed before prompt preparation", async ({ page, request }) => {
+  await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } });
+  const imported = await (await request.post("/api/import", { data: { text: "name,city,category\nAtelier Sans Email,Paris,Artisan" } })).json();
+  const id = imported.prospects[0].id;
+  await page.goto("/");
+  await page.getByRole("button", { name: /Tous les leads/ }).click();
+  const row = page.locator("tbody tr").filter({ hasText: "Atelier Sans Email" });
+  await expect(row.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(row).toContainText("Adresse email manquante");
+  await row.getByRole("button", { name: "Compléter l’email" }).click();
+  const drawer = page.getByRole("complementary", { name: "Fiche prospect" });
+  await expect(drawer.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(drawer).toContainText("Adresse email manquante");
+  await drawer.getByLabel("Adresse email du prospect").fill("bonjour@atelier-fixture.fr");
+  await drawer.getByRole("button", { name: "Enregistrer l’email" }).click();
+  await expect(drawer.getByRole("button", { name: "Préparer le prompt email · default" })).toBeEnabled();
+  expect((await (await request.get("/api/state")).json()).prospects.find((p: any) => p.id === id).email).toBe("bonjour@atelier-fixture.fr");
+  await drawer.getByRole("button", { name: "Préparer le prompt email · default" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Prompt email · profil default");
+  expect((await (await request.get("/api/state")).json()).handoffs.filter((h: any) => h.kind === "email" && h.prospectId === id)).toHaveLength(1);
+});
+
+test("list email action prepares a prompt directly; opposition and reserved emails explain their guard", async ({ page, request }) => {
+  await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } });
+  const imported = await (await request.post("/api/import", { data: { text: "name,city,category,email\nAtelier Adresse Valide,Paris,Artisan,bonjour@atelier-fixture.fr\nAtelier Opposition,Lyon,Artisan,refus@atelier-fixture.fr\nAtelier Adresse Reservee,Bordeaux,Artisan,bonjour@example.com" } })).json();
+  const opposition = imported.prospects.find((p: any) => p.name === "Atelier Opposition");
+  await request.patch(`/api/prospects/${opposition.id}`, { data: { doNotContact: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: /Tous les leads/ }).click();
+  const refused = page.locator("tbody tr").filter({ hasText: "Atelier Opposition" });
+  await expect(refused.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(refused).toContainText("Opposition au contact");
+  await refused.getByRole("button", { name: "Voir la fiche" }).click();
+  const drawer = page.getByRole("complementary", { name: "Fiche prospect" });
+  await expect(drawer.getByLabel("Adresse email du prospect")).toHaveCount(0);
+  await expect(drawer).toContainText("Ne modifiez pas l’adresse pour contourner ce refus");
+  await drawer.getByRole("button", { name: "Fermer la fiche" }).click();
+  const invalid = page.locator("tbody tr").filter({ hasText: "Atelier Adresse Reservee" });
+  await expect(invalid.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(invalid).toContainText("Adresse email invalide ou réservée");
+  await invalid.getByRole("button", { name: "Corriger l’email" }).click();
+  await drawer.getByLabel("Adresse email du prospect").fill("incorrect");
+  await expect(drawer.getByRole("button", { name: "Enregistrer l’email" })).toBeDisabled();
+  await drawer.getByRole("button", { name: "Fermer la fiche" }).click();
+  const valid = page.locator("tbody tr").filter({ hasText: "Atelier Adresse Valide" });
+  await valid.getByRole("button", { name: "Préparer le prompt email · default" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Prompt email · profil default");
+  const stored = await (await request.get("/api/state")).json();
+  expect(stored.handoffs).toHaveLength(1);
+  expect(stored.handoffs[0].kind).toBe("email");
+  expect(stored.drafts).toHaveLength(0);
+});
+
 test("demo email prompt disabled", async ({ page, request }) => {
   await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } }); await request.post("/api/demo");
   await page.goto("/"); await page.getByRole("button", { name: /Tous les leads/ }).click(); await page.getByRole("button", { name: "Voir la fiche" }).first().click();
-  await expect(page.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(page.getByRole("complementary", { name: "Fiche prospect" }).getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
 });

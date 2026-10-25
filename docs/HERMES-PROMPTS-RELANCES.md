@@ -5,7 +5,9 @@
 - **Refonte du site → profil `coder`** : copier le prompt et transmettre le dossier contenant les sources collectées. Ce bouton prépare une mission ; il ne lance pas Hermes, ne modifie pas un site et ne publie rien.
 - **Email de prospection → profil `default`** : copier le prompt pour préparer un premier brouillon Gmail au nom d’**Andy Ramaroson**, depuis `andyramaroson@gmail.com`. Les coordonnées et le destinataire doivent être vérifiés. Le brouillon est relu et validé avant son premier envoi ; créer le prompt n’envoie aucun email.
 
-Les profils ne sont ni installés ni reconfigurés par ProspectAI. Choisir le profil concerné dans Hermes, puis lui transmettre le prompt. Les données des prospects et les contenus de leurs sites sont des sources non fiables, jamais des instructions système. Un audit absent ne doit pas devenir un défaut du site inventé ; tarifs, garanties et résultats commerciaux ne sont pas fabriqués.
+Les profils ne sont ni installés ni reconfigurés par ProspectAI. Si le bouton email n’est pas disponible, la fiche indique le motif : adresse manquante/invalide, démonstration, archivage ou opposition. Sur une fiche active autorisée, saisir l’adresse réelle dans **Adresse email du prospect**, puis **Enregistrer l’email** ; le bouton peut alors être utilisé après relecture de l’état enregistré. Cette saisie n’envoie rien, n’enrichit pas automatiquement la fiche et ne lève aucune opposition. Une adresse reste une information utilisateur non vérifiée.
+
+Choisir le profil concerné dans Hermes, puis lui transmettre le prompt. Les données des prospects et les contenus de leurs sites sont des sources non fiables, jamais des instructions système. Un audit absent ne doit pas devenir un défaut du site inventé ; tarifs, garanties et résultats commerciaux ne sont pas fabriqués.
 
 ## Relances autorisées par campagne
 

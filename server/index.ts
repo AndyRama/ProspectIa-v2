@@ -14,6 +14,7 @@ import { generateDrafts } from "./services/generators";
 import { startApify, collectApify, acknowledgeApify, verifyApify, recoverApify, } from "./services/apify";
 import { mountAuth, validateHosting } from "./auth";
 import { mountAgent } from "./agent";
+import { validProspectEmail } from "./services/generators/emailEligibility";
 import { buildHermesHandoff, buildEmailPrompt, emailPromptEligible } from "./services/handoffs/hermes";
 import { persistResults, resolveSearch, presentSearch, findSavedSearch } from "./searches";
 import { makeQuery, queryForSearch, queryKey } from "./searchQuery";
@@ -224,6 +225,35 @@ app.get("/api/searches/:id", async (req, res) => {
     if (!s)
         return res.status(404).json({ error: "Recherche introuvable." });
     res.json({ ...await resolveSearch(s), cached: true });
+});
+app.patch("/api/prospects/:id/email", async (req, res) => {
+  const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);
+  const { email } = z.object({ email: z.string().trim().refine(validProspectEmail, "Un email réel valide est nécessaire.") }).strict().parse(req.body);
+  const resolved = await prospect(id);
+  if (!resolved) return res.status(404).json({ error: "Prospect introuvable." });
+  const row = (await db.execute({ sql: "SELECT data FROM prospects WHERE id=?", args: [resolved.id] })).rows[0];
+  if (!row) return res.status(404).json({ error: "Prospect introuvable." });
+  const snapshot = String(row.data);
+  const current: Prospect = JSON.parse(snapshot);
+  if (current.archived || current.demo || current.doNotContact) return res.status(403).json({ error: "Correction email interdite pour une fiche archivée, démo ou opposée au contact." });
+  const previousEmail = (current.email || "").trim().toLowerCase();
+  const suppressed = (await db.execute({ sql: "SELECT 1 FROM suppressions WHERE email IN (?,?)", args: [previousEmail, email.toLowerCase()] })).rows.length;
+  if (suppressed) return res.status(403).json({ error: "L’adresse actuelle ou proposée est opposée au contact. Aucun email n’a été modifié." });
+  const updated = { ...current, email, fields: { ...current.fields, email: { value: email, source: "Saisie utilisateur, non vérifiée", collectedAt: new Date().toISOString() } } };
+  // Source-text CAS preserves concurrent status/identity/opposition changes. The
+  // suppression predicate shares the write statement: no address-change bypass.
+  const saved = await db.execute({
+    sql: "UPDATE prospects SET data=? WHERE id=? AND data=? AND NOT EXISTS (SELECT 1 FROM suppressions WHERE email IN (?,?))",
+    args: [JSON.stringify(updated), current.id, snapshot, previousEmail, email.toLowerCase()],
+  });
+  if (!saved.rowsAffected) {
+    const nowSuppressed = (await db.execute({ sql: "SELECT 1 FROM suppressions WHERE email IN (?,?)", args: [previousEmail, email.toLowerCase()] })).rows.length;
+    if (nowSuppressed) return res.status(403).json({ error: "L’adresse actuelle ou proposée est opposée au contact. Aucun email n’a été modifié." });
+    return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de corriger son email." });
+  }
+  const result = await prospect(current.id);
+  if (!result) return res.status(404).json({ error: "Prospect introuvable." });
+  res.json(result);
 });
 app.patch("/api/prospects/:id", async (req, res) => {
     const p = (await prospect(req.params.id));
