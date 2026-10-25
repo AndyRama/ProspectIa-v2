@@ -283,6 +283,33 @@ app.post(["/api/prospects/:id/analyze", "/api/prospects/:id/drafts", "/api/prosp
     if (p?.archived) return res.status(403).json({ error: "Prospect archivé : restaurez la fiche avant de créer de nouveaux éléments." });
     next();
 });
+app.post("/api/prospects/:id/site-check", async (req, res) => {
+    const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);
+    z.object({}).strict().parse(req.body);
+    const resolved = await prospect(id);
+    if (!resolved) return res.status(404).json({ error: "Prospect introuvable." });
+    const row = (await db.execute({ sql: "SELECT data FROM prospects WHERE id=?", args: [resolved.id] })).rows[0];
+    if (!row) return res.status(404).json({ error: "Prospect introuvable." });
+    const snapshot = String(row.data);
+    const current: Prospect = JSON.parse(snapshot);
+    if (current.demo || current.archived) return res.status(403).json({ error: "Vérification interdite pour une fiche démo ou archivée." });
+    if (!current.website.trim()) return res.status(422).json({ error: "Aucun site renseigné pour ce prospect." });
+    let updated: Prospect;
+    try {
+        const data = await inspectSite(current.website, { signal: AbortSignal.timeout(15000) });
+        updated = { ...current, audit: { ...data.audit, sourceUrl: data.url, scope: "homepage" },
+            siteCheck: { status: "succeeded", checkedAt: data.audit.checkedAt },
+            webStatus: data.audit.score >= 35 ? "À examiner" : "Site analysé" };
+    } catch {
+        updated = { ...current, siteCheck: { status: "failed", checkedAt: new Date().toISOString(), error: "Le site n’a pas pu être vérifié. Réessayez plus tard ou vérifiez son adresse." }, webStatus: "Vérification impossible" };
+    }
+    const saved = await db.execute({ sql: "UPDATE prospects SET data=? WHERE id=? AND data=?", args: [JSON.stringify(updated), current.id, snapshot] });
+    if (!saved.rowsAffected) return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de vérifier son site." });
+    const result = await prospect(current.id);
+    if (!result) return res.status(404).json({ error: "Prospect introuvable." });
+    if (updated.siteCheck?.status === "failed") return res.status(502).json({ error: updated.siteCheck.error, prospect: result });
+    res.json(result);
+});
 app.post("/api/prospects/:id/analyze", async (req, res) => {
     const p = (await prospect(req.params.id));
     if (!p)
@@ -291,9 +318,12 @@ app.post("/api/prospects/:id/analyze", async (req, res) => {
     const current = await prospect(p.id);
     if (!current) return res.status(404).json({ error: "Prospect introuvable." });
     if (current.archived) return res.status(403).json({ error: "Prospect archivé : analyse non enregistrée." });
+    if (["website", "email", "phone", "socials", "fields", "audit", "siteCheck", "webStatus"].some(key => JSON.stringify(current[key as keyof Prospect]) !== JSON.stringify(p[key as keyof Prospect])))
+        return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de relancer l’analyse." });
     const result = { ...current, audit: updated.audit, email: updated.email, phone: updated.phone, socials: updated.socials, fields: updated.fields, webStatus: updated.webStatus };
-    (await saveProspect(result));
-    res.json(result);
+    const saved = await db.execute({ sql: "UPDATE prospects SET data=? WHERE id=? AND data=?", args: [JSON.stringify(result), p.id, JSON.stringify(current)] });
+    if (!saved.rowsAffected) return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de relancer l’analyse." });
+    res.json(await prospect(p.id));
 });
 app.post("/api/prospects/:id/email-prompt", async (req, res) => {
   const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);
@@ -348,14 +378,18 @@ app.post("/api/prospects/:id/handoffs", async (req, res) => {
   if (!p) return res.status(404).json({ error: "Prospect introuvable." });
   const engine = engineSchema.parse(req.body.engine);
   const warnings: string[] = [];
-  if (p.website && !p.demo && !p.audit) {
+  if (p.website && !p.demo && (!p.audit || p.audit.scope === "homepage")) {
     try {
       const updated = await analyze(p);
       const current = await prospect(p.id);
       if (!current) return res.status(404).json({ error: "Prospect introuvable." });
       if (current.archived) return res.status(403).json({ error: "Prospect archivé : analyse et transfert non enregistrés." });
-      p = { ...current, audit: updated.audit, email: updated.email, phone: updated.phone, socials: updated.socials, fields: updated.fields, webStatus: updated.webStatus };
-      await saveProspect(p);
+      if (["website", "email", "phone", "socials", "fields", "audit", "siteCheck", "webStatus"].some(key => JSON.stringify(current[key as keyof Prospect]) !== JSON.stringify(p![key as keyof Prospect])))
+        return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de préparer le transfert." });
+      const result = { ...current, audit: updated.audit, email: updated.email, phone: updated.phone, socials: updated.socials, fields: updated.fields, webStatus: updated.webStatus };
+      const saved = await db.execute({ sql: "UPDATE prospects SET data=? WHERE id=? AND data=?", args: [JSON.stringify(result), p.id, JSON.stringify(current)] });
+      if (!saved.rowsAffected) return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de préparer le transfert." });
+      p = result;
     }
     catch { warnings.push("Le site n’a pas pu être analysé. Hermès devra consulter la source ou demander les contenus manquants."); }
   }
@@ -363,9 +397,15 @@ app.post("/api/prospects/:id/handoffs", async (req, res) => {
   const current = await prospect(p.id);
   if (!current) return res.status(404).json({ error: "Prospect introuvable." });
   if (current.archived) return res.status(403).json({ error: "Prospect archivé : transfert non enregistré." });
+  // Context loading must not replace the validated collection with a newer
+  // homepage check or changed source/contact provenance. The insert CAS below
+  // then protects this validated snapshot against changes after the final read.
+  if (["website", "email", "phone", "socials", "fields", "audit", "siteCheck", "webStatus"].some(key => JSON.stringify(current[key as keyof Prospect]) !== JSON.stringify(p![key as keyof Prospect])))
+    return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de préparer le transfert." });
   p = current;
   const handoff = buildHermesHandoff(p, business, engine, warnings);
-  await db.execute({ sql: "INSERT INTO handoffs VALUES(?,?,?)", args: [handoff.id, p.id, JSON.stringify(handoff)] });
+  const inserted = await db.execute({ sql: "INSERT INTO handoffs SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM prospects WHERE id=? AND data=?)", args: [handoff.id, p.id, JSON.stringify(handoff), p.id, JSON.stringify(p)] });
+  if (!inserted.rowsAffected) return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de préparer le transfert." });
   const { dossier, ...result } = handoff;
   res.json(result);
 });

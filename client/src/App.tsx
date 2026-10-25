@@ -175,6 +175,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [runRecovery, setRunRecovery] = useState("");
 
   const busyRef = useRef(false);
+  const [siteBatch, setSiteBatch] = useState<{ success: number; failed: number; total: number; lastError?: string } | null>(null);
   const [discovery, setDiscovery] = useState<{ plan: { planId: string; actor: string; city: string; query: string; max: number; budget: number; excludedCount: number; unidentifiedCount: number; warnings: string[] }; input: { city: string; activity: string; keyword: string; engine: Engine; max: number; budget: number }; requestId: string } | null>(null);
   const discoveryInput = { city, activity, keyword, engine, max: Math.min(25, state?.settings.limits.max ?? 25), budget };
   const criteriaKey = JSON.stringify(discoveryInput);
@@ -267,6 +268,38 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     {busy === `archive:${p.id}` ? <LoaderCircle size={14} className="spin" /> : p.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
     {p.archived ? "Désarchiver" : "Archiver"}
   </button>;
+  const checkSite = async (p: Prospect) => {
+    if (p.archived || p.demo || !p.website.trim()) return;
+    let result: Prospect | undefined, requestError = "";
+    try {
+      result = await api<Prospect>(`/prospects/${p.id}/site-check`, "POST", {});
+    } catch (error) {
+      requestError = (error as Error).message;
+    }
+    const updated = (await refresh()).prospects.find(item => item.id === p.id);
+    const stamp = result?.siteCheck?.checkedAt || result?.audit?.checkedAt;
+    const previousStamp = p.siteCheck?.checkedAt || p.audit?.checkedAt;
+    const savedStamp = updated?.siteCheck?.checkedAt || updated?.audit?.checkedAt;
+    if (requestError) throw new Error(updated?.siteCheck?.status === "failed" && savedStamp !== previousStamp ? updated.siteCheck.error : requestError);
+    if (updated?.siteCheck?.status === "failed" && savedStamp === stamp && stamp !== previousStamp) throw new Error(updated.siteCheck.error);
+    if (!stamp || stamp === previousStamp || savedStamp !== stamp || updated?.website !== p.website || updated?.siteCheck?.status === "failed") {
+      throw new Error("La vérification n’a pas été confirmée dans la base. Réessayez.");
+    }
+    setNotice({ text: "Contrôle préliminaire enregistré : page d’accueil uniquement, sans collecte complète." });
+  };
+  const siteCheckAction = (p: Prospect) => {
+    const missing = !p.website.trim(), failed = p.siteCheck?.status === "failed";
+    const checked = !failed && !!(p.siteCheck?.status === "succeeded" || p.audit);
+    const checking = busy === `site-check:${p.id}`;
+    return <div className="site-check-action">
+      <button className={`button small site-check ${missing ? "missing" : checked ? "checked" : "pending"}`} disabled={!!busy || missing || !!p.archived || !!p.demo} aria-busy={checking} onClick={() => task(`site-check:${p.id}`, () => checkSite(p))}>
+        {checking ? <LoaderCircle size={14} className="spin" /> : <Globe size={14} />}
+        {checking ? "Vérification en cours…" : missing ? "Aucun site renseigné" : failed ? "Réessayer · contrôle préliminaire" : checked ? "Revérifier · contrôle préliminaire" : "Vérifier le site · contrôle préliminaire"}
+      </button>
+      {failed && <small className="site-check-error">{p.siteCheck?.status === "failed" && p.siteCheck.error}</small>}
+      {missing && <small>Aucune URL dans cette fiche ; cela ne prouve pas l’absence d’un site sur internet.</small>}
+    </div>;
+  };
   const toggle = async (p: Prospect, selected = !p.selected) => {
     if (p.archived) return;
     await api(`/prospects/${p.id}`, "PATCH", { selected });
@@ -381,6 +414,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   }
   const selected = canonical.filter((p) => p.selected && !p.archived);
   const selectableRows = rows.filter((p) => !p.archived);
+  const siteCandidates = rows.filter(p => !p.archived && !p.demo && !!p.website.trim()).slice(0, 25);
+  const checkDisplayedSites = () => task("site-check-batch", async () => {
+    const summary = { success: 0, failed: 0, total: siteCandidates.length, lastError: "" };
+    setSiteBatch({ ...summary });
+    for (const p of siteCandidates) {
+      try { await checkSite(p); summary.success++; }
+      catch (error) { summary.failed++; summary.lastError = `${p.name} : ${(error as Error).message}`; }
+      setSiteBatch({ ...summary });
+    }
+    setNotice({ text: `${summary.success} réussite(s) · ${summary.failed} échec(s). ${summary.lastError}`, error: summary.failed > 0 });
+  });
   const archivedCount = canonical.filter((p) => p.archived).length;
   const currentQuery = makeQuery({ city, activity, keyword, paid: false, engine });
   const savedSearch = state.searches.find((s) => {
@@ -926,6 +970,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </span>
               </div>
               <section className="card table-card">
+                {page !== "archives" && <div className="site-check-batch" aria-live="polite">
+                  <button className="button ghost small" disabled={!!busy || !siteCandidates.length} onClick={checkDisplayedSites}>Vérifier les sites affichés</button>
+                  <p>Contrôle préliminaire · page d’accueil uniquement · 25 sites maximum, un à un · sans Apify.</p>
+                  {siteBatch && <p>{siteBatch.success} réussite(s) · {siteBatch.failed} échec(s) · {siteBatch.success + siteBatch.failed}/{siteBatch.total}{busy === "site-check-batch" ? " · En cours…" : " · Terminé"}{siteBatch.lastError && <span className="site-check-error"> · {siteBatch.lastError}</span>}</p>}
+                </div>}
                 {!directory && <div className="table-toolbar">
                   <label>
                     Adéquation à mon entreprise
@@ -1044,6 +1093,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               <Globe size={12} />
                               {p.webStatus}
                             </span>
+                            {siteCheckAction(p)}
                           </td>
                           <td>
                             <span className="rating">
@@ -1527,6 +1577,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     OBSERVATIONS TECHNIQUES · {date(opened.audit.checkedAt)}
                   </span>
                   <h3>Un premier regard sur le site</h3>
+                  {opened.audit.scope === "homepage" && <>
+                    <p>Contrôle préliminaire · page d’accueil uniquement</p>
+                    <p>Ce contrôle ne remplace pas l’analyse complète du site ni la collecte des pages pour une refonte.</p>
+                    {opened.audit.sourceUrl && <Link href={opened.audit.sourceUrl}>Source du contrôle</Link>}
+                  </>}
                   <p>
                     Score indicatif : {opened.audit.score}/100 de signaux à
                     examiner. Ce contrôle ne juge pas le design.
@@ -1594,6 +1649,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </label>
                 <p>{engines[engine].description}</p>
               </section>
+              {siteCheckAction(opened)}
               <button
                 className="button ghost full"
                 disabled={!!busy || !!opened.archived || !opened.website || opened.demo}
@@ -1612,7 +1668,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 ) : (
                   <Globe size={16} />
                 )}
-                Analyser le site existant
+                Analyse complète du site
               </button>
               <p className="source-note">
                 Les sites sont consultés uniquement à votre demande. Les

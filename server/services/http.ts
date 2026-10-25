@@ -33,42 +33,70 @@ export async function publicUrl(raw: string) {
     throw Error("Les adresses locales ou privées ne sont pas autorisées.");
   return u;
 }
-export async function readPublic(raw: string) {
+/** Bound even DNS (lookup itself is not cancellable); late results cannot fetch. */
+async function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => { cleanup(); reject(signal.reason); };
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
+  });
+}
+export async function readPublic(raw: string, options: { signal?: AbortSignal } = {}) {
   let url = raw;
   for (let n = 0; n < 5; n++) {
-    const u = await publicUrl(url);
-    const r = await fetch(u, {
+    const signal = options.signal || AbortSignal.timeout(15000);
+    signal.throwIfAborted();
+    const u = await abortable(publicUrl(url), signal);
+    signal.throwIfAborted();
+    const r = await abortable(fetch(u, {
       redirect: "manual",
-      signal: AbortSignal.timeout(15000),
+      signal,
       headers: {
         "User-Agent":
           "ProspectAI/1.0 (public business research; local application)",
         Accept: "text/html",
       },
-    });
+    }).then(response => {
+      if (signal.aborted) { void response.body?.cancel().catch(() => {}); signal.throwIfAborted(); }
+      return response;
+    }), signal);
     if ([301, 302, 303, 307, 308].includes(r.status)) {
+      void r.body?.cancel().catch(() => {});
       const l = r.headers.get("location");
       if (!l) throw Error("Redirection invalide.");
       url = new URL(l, u).href;
       continue;
     }
-    if (!r.ok) throw Error(`Le site a répondu HTTP ${r.status}.`);
-    if (!r.headers.get("content-type")?.includes("text/html"))
+    if (!r.ok || !r.headers.get("content-type")?.includes("text/html")) {
+      void r.body?.cancel().catch(() => {});
+      if (!r.ok) throw Error(`Le site a répondu HTTP ${r.status}.`);
       throw Error("Cette URL ne renvoie pas une page HTML.");
+    }
     const reader = r.body!.getReader();
+    const cancel = () => { void reader.cancel().catch(() => {}); };
+    signal.addEventListener("abort", cancel, { once: true });
     let bytes = 0;
     const chunks: Uint8Array[] = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.length;
-      if (bytes > 2_000_000) {
-        await reader.cancel();
-        throw Error("Page trop volumineuse (maximum 2 Mo).");
+    try {
+      while (true) {
+        const { done, value } = await abortable(reader.read(), signal);
+        signal.throwIfAborted();
+        if (done) break;
+        bytes += value.length;
+        if (bytes > 2_000_000) {
+          cancel();
+          throw Error("Page trop volumineuse (maximum 2 Mo).");
+        }
+        chunks.push(value);
       }
-      chunks.push(value);
+      return { html: Buffer.concat(chunks).toString("utf8"), url: u.href };
+    } finally {
+      signal.removeEventListener("abort", cancel);
+      reader.releaseLock();
     }
-    return { html: Buffer.concat(chunks).toString("utf8"), url: u.href };
   }
   throw Error("Trop de redirections.");
 }
