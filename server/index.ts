@@ -14,15 +14,23 @@ import { generateDrafts } from "./services/generators";
 import { startApify, collectApify, acknowledgeApify, verifyApify, recoverApify, } from "./services/apify";
 import { mountAuth, validateHosting } from "./auth";
 import { mountAgent } from "./agent";
-import { buildHermesHandoff } from "./services/handoffs/hermes";
+import { buildHermesHandoff, buildEmailPrompt, emailPromptEligible } from "./services/handoffs/hermes";
 import { persistResults, resolveSearch, presentSearch, findSavedSearch } from "./searches";
 import { makeQuery, queryForSearch, queryKey } from "./searchQuery";
 import { planEnrichment, validPlaceId } from "./services/apifyPlan";
 import { ApifyHttpError, planApifyDiscovery, startApifyDiscovery, verifyApifyDiscovery } from "./services/apifyDiscovery";
+import { xlsxSchema, listXlsxSheets, parseXlsx, previewXlsx, xlsxProspects } from "./xlsxImport";
 const app = express();
 app.disable("x-powered-by");
 mountAgent(app);
-app.use(express.json({ limit: "2mb" }));
+const standardJson = express.json({ limit: "2mb" });
+const xlsxJson = express.json({ limit: "8mb", inflate: false });
+// Only these exact endpoints accept a larger base64 JSON body. All still pass
+// through the existing origin and session guards before workbook parsing.
+app.use((req, res, next) => {
+    const isXlsx = req.method === "POST" && ["/api/import/xlsx", "/api/import/xlsx/preview", "/api/import/xlsx/sheets"].includes(req.path.toLowerCase().replace(/\/$/, ""));
+    (isXlsx ? xlsxJson : standardJson)(req, res, next);
+});
 app.use("/api", (req, res, next) => {
     const origin = req.get("origin");
     if (origin) {
@@ -257,6 +265,28 @@ app.post("/api/prospects/:id/analyze", async (req, res) => {
     (await saveProspect(result));
     res.json(result);
 });
+app.post("/api/prospects/:id/email-prompt", async (req, res) => {
+  const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);
+  const { engine } = z.object({ engine: engineSchema }).strict().parse(req.body);
+  const business = await getSetting<Business>("business", defaultBusiness);
+  // Re-read after asynchronous context loading, immediately before creation.
+  // No analysis, provider, Gmail access or legacy draft generation on this route.
+  const current = await prospect(id);
+  if (!current) return res.status(404).json({ error: "Prospect introuvable." });
+  if (!emailPromptEligible(current)) return res.status(403).json({ error: "Un email réel valide est nécessaire ; les fiches démo, archivées ou opposées au contact sont exclues." });
+  const suppressed = (await db.execute({ sql: "SELECT 1 FROM suppressions WHERE email=?", args: [current.email.toLowerCase()] })).rows.length;
+  if (suppressed) return res.status(403).json({ error: "Cette adresse est opposée au contact." });
+  const handoff = buildEmailPrompt(current, business, engine);
+  // Atomic compare-and-insert: a concurrent archive, opposition, address edit or
+  // deletion must not persist work built from a stale eligibility snapshot.
+  const saved = await db.execute({
+    sql: "INSERT INTO handoffs SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM prospects WHERE id=? AND data=?) AND NOT EXISTS (SELECT 1 FROM suppressions WHERE email=?)",
+    args: [handoff.id, current.id, JSON.stringify(handoff), current.id, JSON.stringify(current), current.email.toLowerCase()],
+  });
+  if (!saved.rowsAffected) return res.status(403).json({ error: "La fiche ou son opposition a changé. Vérifiez son état avant de préparer un nouveau prompt." });
+  const { dossier, ...result } = handoff;
+  res.json(result);
+});
 app.post("/api/prospects/:id/drafts", async (req, res) => {
     const p = (await prospect(req.params.id));
     if (!p)
@@ -350,6 +380,18 @@ app.post("/api/business/read-site", async (req, res) => {
         facebook: info.socials.facebook || "",
         source: info.url,
     });
+});
+app.post("/api/import/xlsx/sheets", async (req, res) => {
+    res.json(await listXlsxSheets(xlsxSchema.parse(req.body)));
+});
+app.post("/api/import/xlsx/preview", async (req, res) => {
+    res.json(previewXlsx(await parseXlsx(xlsxSchema.parse(req.body))));
+});
+app.post("/api/import/xlsx", async (req, res) => {
+    const input = xlsxSchema.extend({ confirmed: z.literal(true) }).strict().parse(req.body);
+    const parsed = await parseXlsx(input);
+    if (!parsed.count) throw Error("Aucune entreprise à importer dans cette feuille.");
+    res.json(await persistResults(xlsxProspects(parsed.rows), { city: "Import local", activity: "all", engine: "website" }, "Import Excel", 0, parsed.warnings));
 });
 app.post("/api/import", async (req, res) => {
     const { text } = z
@@ -458,6 +500,7 @@ app.delete("/api/data", async (req, res) => {
 });
 app.use("/api", (_req, res) => res.status(404).json({ error: "Fonction introuvable. ProspectAI ne publie plus de maquettes et n’envoie aucun email." }));
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err.status === 413) return res.status(413).json({ error: "Fichier ou requête trop volumineux : XLSX maximum 5 MiB, JSON XLSX maximum 8 MiB (autres requêtes : 2 MiB)." });
     res.status(err instanceof z.ZodError ? 400 : 422).json({
         error: err instanceof z.ZodError
             ? "Champs invalides : " +

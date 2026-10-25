@@ -48,6 +48,7 @@ import type {
   Status,
 } from "../../server/types";
 import { api, safeUrl } from "./api";
+import { emailPromptEligible } from "../../server/services/generators/emailEligibility";
 import ProspectMap from "./Map";
 import HermesPrompt from "./HermesPrompt";
 import { makeQuery, queryForSearch, queryKey } from "../../server/searchQuery";
@@ -138,6 +139,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     ),
     [help, setHelp] = useState(false),
     [importing, setImporting] = useState(false),
+    [importingExcel, setImportingExcel] = useState(false),
     [mobile, setMobile] = useState(false),
     [preview, setPreview] = useState<Omit<HermesHandoff, "dossier"> | null>(null);
   const [city, setCity] = useState("Papeete"),
@@ -299,13 +301,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       await refresh();
     });
   const generate = (p: Prospect) =>
-    task("drafts", async () => {
-      const r = await api(`/prospects/${p.id}/drafts`, "POST", { engine });
-      await refresh();
-      setNotice({
-        text: `3 variantes préparées · ${r.mode}. Relisez-les avant utilisation.`,
-      });
-      go("drafts");
+    task("email-prompt", async () => {
+      const result = await api<Omit<HermesHandoff, "dossier">>(`/prospects/${p.id}/email-prompt`, "POST", { engine });
+      await refresh(); go("handoffs"); setPreview(result);
+      setNotice({ text: "Un prompt email pour default est prêt. Aucun brouillon Gmail créé, aucun message envoyé ni relance activée par ProspectAI." });
     });
   const createHandoff = (p: Prospect) =>
     task("handoff", async () => {
@@ -814,14 +813,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   </button>
                 </div>
               </details>
-              <button
-                className="import-link"
-                onClick={() => setImporting(true)}
-              >
-                <Upload size={14} />
-                Importer mes entreprises <span>· CSV ou liste de sites</span>
-                <ArrowRight size={13} />
-              </button>
+              <div className="import-actions">
+                <button className="import-link" onClick={() => setImporting(true)}>
+                  <Upload size={14} />
+                  Importer mes entreprises <span>· CSV ou liste de sites</span>
+                  <ArrowRight size={13} />
+                </button>
+                <button className="button ghost small" disabled={!!busy} onClick={() => setImportingExcel(true)}><Upload size={14} />Importer Excel</button>
+              </div>
               <div className="kpis">
                 <Kpi
                   Icon={Store}
@@ -859,6 +858,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               {page === "leads" && (
                 <>
                   <div className="page-hero"><div><div className="eyebrow">VOTRE RÉPERTOIRE</div><h1>Tous les leads</h1><p>Toutes vos entreprises enregistrées, toutes villes et tous moteurs confondus. Archiver conserve le dossier et son historique, sans supprimer les données.</p></div><Store className="hero-icon" size={45} /></div>
+                  <div className="import-actions">
+                    <button className="button ghost small" disabled={!!busy} onClick={() => setImporting(true)}><Upload size={14} />Importer CSV</button>
+                    <button className="button ghost small" disabled={!!busy} onClick={() => setImportingExcel(true)}><Upload size={14} />Importer Excel</button>
+                  </div>
                   <div className="tabs" aria-label="Filtrer les leads">
                     {[["all", "Tous", canonical.length], ["active", "Actifs", canonical.length - archivedCount], ["archived", "Archivés", archivedCount]].map(([id, label, count]) => <button key={id} aria-pressed={archiveFilter === id} className={archiveFilter === id ? "active" : ""} onClick={() => setArchiveFilter(String(id))}>{label} {count}</button>)}
                   </div>
@@ -1141,13 +1144,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 eyebrow="DES MOTS QUI OUVRENT DES PORTES"
                 title="Un premier mot,"
                 accent="personnel."
-                text="Trois façons d’engager la conversation. Toujours à relire, jamais envoyées automatiquement."
+                text="Vos anciens brouillons restent consultables et modifiables. Pour un nouveau contact, préparez le prompt email destiné au profil default depuis la fiche prospect."
               />
               {!state.drafts.length ? (
                 <Empty
                   Icon={Mail}
                   title="Vos prochains échanges prennent forme ici"
-                  text="Ouvrez la fiche d’un prospect et préparez vos trois variantes personnalisées."
+                  text="Ouvrez une fiche avec un email réel valide pour préparer un prompt destiné à default. Vos anciens brouillons seront conservés ici."
                   action={
                     <button
                       className="button primary"
@@ -1198,7 +1201,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           )}
           {page === "handoffs" && (
             <>
-              <PageHero eyebrow="VOTRE COLLABORATION AVEC HERMÈS" title="Un projet prêt à" accent="transmettre." text="Des prompts précis et des dossiers sourcés pour confier la réalisation à votre employé Hermès IA." />
+              <PageHero eyebrow="VOTRE COLLABORATION AVEC HERMÈS" title="Un projet prêt à" accent="transmettre." text="Deux usages distincts : prompt email pour default, prompt de refonte pour coder. Copiez le prompt et joignez son dossier ; aucun profil n’est piloté par ProspectAI." />
               <div className="banner"><ShieldCheck size={19} /><span>Hermès reçoit vos consignes par copier-coller et par le dossier que vous lui joignez. Il doit attendre votre accord avant chaque étape, toute publication ou prise de contact.</span></div>
               {!state.handoffs.length ? <Empty Icon={FileText} title="Le bon dossier pour commencer" text="Depuis une fiche prospect, préparez un prompt adapté à la création du site, au menu ou à l’agent personnel." action={<button className="button primary" onClick={() => go("search")}>Explorer les prospects <ArrowRight size={16} /></button>} /> : (
                 <div className="deliverable-grid">{state.handoffs.map((h) => (
@@ -1593,23 +1596,23 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 <Monitor size={16} />
                 {busy === "handoff"
                   ? "Préparation…"
-                  : "Préparer le prompt Hermès"}
+                  : engine === "website" ? "Préparer le prompt refonte · coder" : "Préparer le prompt Hermès"}
               </button>
               <button
                 className="button primary full"
-                disabled={!!busy || !!opened.archived}
+                disabled={!!busy || !emailPromptEligible(opened)}
                 onClick={() => generate(opened)}
               >
-                {busy === "drafts" ? (
+                {busy === "email-prompt" ? (
                   <LoaderCircle className="spin" size={17} />
                 ) : (
                   <Sparkles size={17} />
                 )}
-                Préparer les 3 variantes
+                Préparer le prompt email · default
                 <ArrowRight size={16} />
               </button>
               <small>
-                Modèles locaux personnalisés · aucune API IA
+                {emailPromptEligible(opened) ? "Transfert manuel · aucun envoi ni activation. Premier mail à valider ; relances J3/J7/J15/J31 à approuver par campagne." : "Email réel valide requis · hors démo, archivage et opposition. Aucun envoi ni activation."}
               </small>
             </div>
           </aside>
@@ -1672,6 +1675,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           </div>
         </Modal>
       )}
+      {importingExcel && <ExcelImportModal
+        onClose={() => setImportingExcel(false)}
+        onImported={async (result) => {
+          const updated = await refresh();
+          if (!updated.searches.some((search) => search.id === result.search.id) || !result.search.ids.every((id) => updated.prospects.some((prospect) => prospect.id === id))) {
+            throw new Error("La persistance de l’import n’a pas été confirmée.");
+          }
+          receive(result);
+          setImportingExcel(false);
+          go("leads");
+        }}
+      />}
       {importing && (
         <ImportModal
           onClose={() => setImporting(false)}
@@ -1714,7 +1729,19 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         </>}
         <p>Pour proposer de nouveaux candidats à ce mode, importez un CSV avec une colonne <code>placeId</code> contenant leur véritable identifiant Google Maps. Un nom ou une adresse seuls ne suffisent pas pour lancer un paiement.</p>
       </Modal>}
-      {preview && <Modal title="Prompt et dossier pour Hermès IA" onClose={() => setPreview(null)} wide><HermesPrompt key={preview.id} handoff={preview} /></Modal>}
+      {preview && <Modal title={preview.kind === "email" ? "Prompt email · profil default" : preview.targetProfile === "coder" ? "Prompt refonte · profil coder" : "Prompt et dossier pour Hermès IA"} onClose={() => setPreview(null)} wide>
+        {preview.kind === "email" ? <div className="hermes-prompt">
+          <p className="hermes-intro">Copiez ce prompt dans le profil default et joignez le dossier. ProspectAI ne transmet rien, ne crée aucun brouillon Gmail et n’active aucune relance.</p>
+          <div className="banner"><ShieldCheck size={18} /><span>Premier mail : brouillon, relecture et validation humaine avant envoi. Relances J3/J7/J15/J31 : approbation explicite par campagne, après envoi réel du premier mail ; arrêt dès réponse ou refus.</span></div>
+          <div className="button-group hermes-actions">
+            <a className="button primary" href={`/api/handoffs/${preview.id}/export?format=dossier`}><Download size={16} /> Dossier complet · JSON</a>
+            <button className="button ghost" onClick={() => task("copy-email-prompt", async () => { await navigator.clipboard.writeText(preview.prompt); setNotice({ text: "Prompt copié. Collez-le manuellement dans le profil default." }); })}><Copy size={16} /> Copier le prompt</button>
+            <a className="button ghost" href={`/api/handoffs/${preview.id}/export`}><Download size={16} /> Prompt · Markdown</a>
+          </div>
+          <label className="hermes-text-label">PROMPT À TRANSMETTRE À HERMÈS<textarea readOnly rows={22} value={preview.prompt} /></label>
+          <p className="source-note">Aucun routage réel entre profils. Les accès Gmail et le script scripts/email-followups.ts sont à vérifier séparément. En cas d’échec de copie, sélectionnez le texte manuellement.</p>
+        </div> : <HermesPrompt key={preview.id} handoff={preview} />}
+      </Modal>}
 
     </div>
   );
@@ -1900,6 +1927,110 @@ function ImportModal({
       </button>
     </Modal>
   );
+}
+type ExcelPreview = {
+  sheets: string[];
+  sheet: string;
+  rows: { name: string; city: string; website: string; email: string; phone: string; address: string; category: string }[];
+  count: number;
+  warnings: string[];
+};
+function ExcelImportModal({ onClose, onImported }: {
+  onClose: () => void;
+  onImported: (result: { search: SearchRecord; prospects: Prospect[] }) => Promise<void>;
+}) {
+  const [file, setFile] = useState<{ fileName: string; data: string } | null>(null);
+  const [preview, setPreview] = useState<ExcelPreview | null>(null);
+  const [sheets, setSheets] = useState<string[]>([]), [sheet, setSheet] = useState("");
+  const [confirmed, setConfirmed] = useState(false), [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false), [error, setError] = useState("");
+  const version = useRef(0), locked = useRef(false), committed = useRef(false);
+  useEffect(() => () => { version.current++; }, []);
+  const close = () => { if (!locked.current) { version.current++; onClose(); } };
+  const invalidate = () => {
+    setPreview(null); setConfirmed(false); setError("");
+    return ++version.current;
+  };
+  const loadPreview = async (source: { fileName: string; data: string }, selected: string | undefined, request: number) => {
+    try {
+      const next = await api<ExcelPreview>("/import/xlsx/preview", "POST", { ...source, ...(selected ? { sheet: selected } : {}) });
+      if (request !== version.current) return;
+      setSheets(next.sheets); setSheet(next.sheet); setPreview(next);
+    } catch (e) {
+      if (request === version.current) setError((e as Error).message);
+    } finally {
+      if (request === version.current) setLoading(false);
+    }
+  };
+  const chooseFile = async (selected?: File) => {
+    const request = invalidate();
+    setFile(null); setSheets([]); setSheet(""); setLoading(false);
+    if (!selected) return;
+    if (!/\.xlsx$/i.test(selected.name)) { setError("Choisissez un fichier .xlsx (Excel), pas un CSV ou un ancien fichier .xls."); return; }
+    if (selected.size > 5 * 1024 * 1024) { setError("Le fichier dépasse la limite de 5 Mio (5 MiB)."); return; }
+    setLoading(true);
+    try {
+      // FileReader encodes the whole bounded file without spreading bytes onto the JS stack.
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Impossible de lire ce fichier Excel."));
+        reader.onload = () => resolve(String(reader.result).split(",", 2)[1]);
+        reader.readAsDataURL(selected);
+      });
+      if (request !== version.current) return;
+      const source = { fileName: selected.name, data };
+      setFile(source);
+      // Keep workbook navigation available even when the initial sheet's rows
+      // cannot be imported. Both endpoints use the same validated ZIP/XML read.
+      const workbook = await api<{ sheets: string[]; sheet: string }>("/import/xlsx/sheets", "POST", source);
+      if (request !== version.current) return;
+      setSheets(workbook.sheets); setSheet(workbook.sheet);
+      await loadPreview(source, workbook.sheet, request);
+    } catch (e) {
+      if (request === version.current) { setLoading(false); setError((e as Error).message); }
+    }
+  };
+  const submit = async () => {
+    if (locked.current || committed.current || !file || !preview || !confirmed || loading || !preview.count || preview.count > 200) return;
+    locked.current = true; setSaving(true); setError("");
+    try {
+      const result = await api<{ search: SearchRecord; prospects: Prospect[] }>("/import/xlsx", "POST", { ...file, sheet: preview.sheet, confirmed: true });
+      committed.current = true;
+      await onImported(result);
+    } catch (e) {
+      setError(committed.current ? "Réponse reçue, mais actualisation impossible ou enregistrement non confirmé. Fermez cette fenêtre et rechargez la page pour vérifier les leads avant de réimporter." : (e as Error).message);
+    } finally { locked.current = false; setSaving(false); }
+  };
+  return <Modal title="Importer Excel" onClose={close} wide>
+    <div className="excel-import" aria-busy={loading || saving}>
+      <p className="muted">Fichier .xlsx · 5 Mio maximum · 200 lignes maximum par import. L’aperçu n’enregistre aucune entreprise.</p>
+      <a className="text-link" href="/modele-prospects.xlsx" download>Télécharger le modèle Excel</a>
+      <label>Fichier Excel (.xlsx)<input type="file" accept=".xlsx" disabled={saving || committed.current} onChange={(e) => { void chooseFile(e.target.files?.[0]); }} /></label>
+      {!!sheets.length && <label>Feuille à importer<select value={sheet} disabled={saving || committed.current} onChange={(e) => {
+        const selected = e.target.value, request = invalidate();
+        setSheet(selected);
+        if (file) { setLoading(true); void loadPreview(file, selected, request); }
+      }}>{sheets.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
+      {loading && <p role="status"><LoaderCircle className="spin" size={16} /> Lecture de l’aperçu…</p>}
+      {error && <p className="excel-error" role="alert">{error}</p>}
+      {preview && <>
+        <p role="status">{preview.count} ligne(s) à importer · feuille {preview.sheet}</p>
+        {!!preview.warnings.length && <div className="banner"><div><strong>Avertissements</strong><ul>{preview.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></div></div>}
+        <div className="table-scroll excel-preview" tabIndex={0} role="region" aria-label="Aperçu des entreprises">
+          <table><thead><tr>{["Nom", "Ville", "Site web", "Email", "Téléphone"].map((title) => <th scope="col" key={title}>{title}</th>)}</tr></thead>
+            <tbody>{preview.rows.slice(0, 200).map((row, i) => <tr key={i}>{[row.name, row.city, row.website, row.email, row.phone].map((value, j) => <td key={j}>{value || "—"}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+        {(!preview.count || preview.count > 200) && <p role="alert">Choisissez une feuille contenant de 1 à 200 lignes valides.</p>}
+        <label className="check-label"><input type="checkbox" checked={confirmed} disabled={saving || committed.current} onChange={(e) => setConfirmed(e.target.checked)} />Je confirme l’import de cette feuille</label>
+      </>}
+      <p className="source-note">Importez uniquement des coordonnées professionnelles que vous êtes autorisé à utiliser. Aucun message, aucune visite de site et aucun appel Apify ne sont lancés.</p>
+      <div className="button-group">
+        <button className="button ghost" disabled={saving} onClick={close}>Annuler</button>
+        <button className="button primary" aria-busy={saving} disabled={saving || loading || committed.current || !preview || !confirmed || !preview.count || preview.count > 200} onClick={() => { void submit(); }}>{saving ? "Import en cours…" : "Confirmer et importer"}</button>
+      </div>
+    </div>
+  </Modal>;
 }
 function DraftCard({ draft, email, onSave, onCopy, onDelete }: {
   draft: Draft; email: string; onSave: (s: string, b: string) => void; onCopy: (b: string) => void; onDelete: () => void;

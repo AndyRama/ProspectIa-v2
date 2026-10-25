@@ -31,7 +31,13 @@ test("Parcours bureau et mobile : recherche, fiche, sélection, rédaction, prom
   await expect(
     page.getByRole("button", { name: "Dans ma sélection" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Préparer les 3 variantes" }).click();
+  await expect(page.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  // Old drafts remain editable/readable, without exposing legacy generation as the new UI action.
+  const historicalState = await (await request.get("/api/state")).json();
+  const selected = historicalState.prospects.find((p: { selected: boolean }) => p.selected);
+  await request.post(`/api/prospects/${selected.id}/drafts`, { data: { engine: "website" } });
+  await page.reload();
+  await page.getByRole("button", { name: /Mes brouillons/ }).click();
   await expect(page.locator(".draft-card")).toHaveCount(3);
   await page
     .locator(".draft-card")
@@ -55,7 +61,7 @@ test("Parcours bureau et mobile : recherche, fiche, sélection, rédaction, prom
   await expect(page.locator("tbody tr")).toHaveCount(1);
   await page.getByRole("button", { name: "Voir la fiche" }).click();
   await page
-    .getByRole("button", { name: "Préparer le prompt Hermès" })
+    .getByRole("button", { name: "Préparer le prompt refonte · coder" })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByLabel("PROMPT À TRANSMETTRE À HERMÈS")).toHaveValue(/ATTENDS MON « OK »/);
