@@ -9,18 +9,16 @@ import { parse } from "csv-parse/sync";
 import { db, defaultBusiness, getSetting, setSetting, list, prospect, saveProspect, saveDraft, saveDrafts, seedDemo, catalogSnapshot } from "./db";
 import { secret, saveSecret } from "./secrets";
 import type { Business, Draft, Engine, Prospect, Search, HermesHandoff } from "./types";
-import { searchFree } from "./services/freeSearch";
 import { analyze, inspectSite } from "./services/siteAnalyzer";
 import { generateDrafts } from "./services/generators";
 import { startApify, collectApify, acknowledgeApify, verifyApify, recoverApify, } from "./services/apify";
 import { mountAuth, validateHosting } from "./auth";
 import { mountAgent } from "./agent";
 import { buildHermesHandoff } from "./services/handoffs/hermes";
-import { persistResults, resolveSearch, presentSearch, findSavedSearch, shareSearch } from "./searches";
+import { persistResults, resolveSearch, presentSearch, findSavedSearch } from "./searches";
 import { makeQuery, queryForSearch, queryKey } from "./searchQuery";
-import { discoverNext } from "./services/discovery";
 import { planEnrichment, validPlaceId } from "./services/apifyPlan";
-import { planApifyDiscovery, startApifyDiscovery, verifyApifyDiscovery } from "./services/apifyDiscovery";
+import { ApifyHttpError, planApifyDiscovery, startApifyDiscovery, verifyApifyDiscovery } from "./services/apifyDiscovery";
 const app = express();
 app.disable("x-powered-by");
 mountAgent(app);
@@ -134,32 +132,20 @@ app.post("/api/demo", async (_req, res) => {
 app.post("/api/search", async (req, res) => {
     const args = searchSchema.parse(req.body);
     const query = makeQuery(args);
-    if (args.paid) {
-        if (args.refresh) throw Error("Relance payante bloquée : la même recherche referait facturer des entreprises connues. Utilisez les nouveaux lots gratuits ou un enrichissement ciblé après vérification des identifiants.");
+    // Compatibility is read-only: neither legacy free discovery nor implicit
+    // paid collection may be launched through this endpoint.
+    if (!args.refresh && !args.refreshPool && args.intent === "browse" && args.paid) {
         const history = (await list<Search>("searches")).filter((s) => { const q = queryForSearch(s); return q && queryKey(q) === queryKey(query); });
         if (history.length) {
             const all = await resolveSearch({ ...history[0], ids: [...new Set(history.flatMap((s) => s.ids))] });
             return res.json({ ...all, cached: true, message: "Toutes les fiches déjà payées ont été réunies, sans nouvelle collecte." });
         }
-        throw Error("Recherche payante par mot-clé bloquée : aucune exclusion avant facturation n’est disponible chez cet Actor. Recherchez gratuitement, puis préparez un lot d’identifiants inédits.");
     }
-    if (args.intent === "discover") {
-        if (!args.requestId) throw Error("Identifiant de lot requis pour empêcher les doubles demandes.");
-        if (args.max > 25) throw Error("Les nouveaux lots sont limités à 25 entreprises.");
-        return res.json(await discoverNext({ ...args, requestId: args.requestId }));
+    if (!args.refresh && !args.refreshPool && args.intent === "browse" && !args.paid) {
+        const saved = await findSavedSearch(query);
+        if (saved) return res.json({ ...await resolveSearch(saved), cached: true });
     }
-    const result = await shareSearch(queryKey(query) + (args.refresh ? `:refresh:${args.requestId || "legacy"}` : ":saved"), async () => {
-        if (!args.refresh || args.requestId) {
-            const saved = await findSavedSearch(query, args.refresh ? args.requestId : undefined);
-            if (saved) return { ...await resolveSearch(saved), cached: true };
-        }
-        const limit = await getSetting("limits", { max: 25, budget: 1 });
-        if (args.max > limit.max || args.budget > limit.budget)
-            throw Error("Les limites demandées dépassent vos plafonds. Modifiez-les dans les paramètres.");
-        const found = await searchFree(args.city, args.activity, args.keyword, args.max, args.engine);
-        return persistResults(found.items, args, found.provider, 0, found.warnings, { query, refreshed: args.refresh });
-    });
-    res.json(result);
+    return res.status(422).json({ error: "Nouvelle recherche Apify : préparez un plan via /api/apify/discovery/plan, puis donnez une confirmation explicite via /api/apify/discovery/start. Aucune collecte n’a été lancée." });
 });
 const apifyDiscoverySchema = z.object({
     city: searchSchema.shape.city,
@@ -476,6 +462,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
         error: err instanceof z.ZodError
             ? "Champs invalides : " +
                 err.issues.map((x) => x.path.join(".") + " " + x.message).join(", ")
+            : err instanceof ApifyHttpError ? err.message
             : /fetch failed|ECONN|ENOTFOUND|ETIMEDOUT/i.test(err.message || "")
                 ? "Connexion au service impossible. Vérifiez votre réseau et les domaines autorisés, puis réessayez."
                 : /abort|timeout/i.test(err.message || "") ? "Le service n’a pas répondu à temps. Réessayez plus tard."

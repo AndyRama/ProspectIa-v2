@@ -1,4 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+
+test("source UI : aucune route de recherche gratuite, plan local et start confirmé séparés", async () => {
+  const source = await readFile(new URL("../client/src/App.tsx", import.meta.url), "utf8");
+  expect(source).not.toMatch(/api\(["']\/search["']/);
+  expect(source).not.toMatch(/doSearch|freeResult|sources gratuites|bouton gratuit/);
+  expect(source).toContain('api("/apify/discovery/plan", "POST", discoveryInput)');
+  expect(source).toContain('api("/apify/discovery/start", "POST", { ...intention.input, planId: intention.plan.planId, requestId: intention.requestId, confirmed: true })');
+});
 
 async function fixture(page: Page, pending: any = null) {
   const state = { prospects: [], searches: [], drafts: [], handoffs: [], settings: { business: { name: "Atelier", zone: "Bordeaux", userName: "Test" }, limits: { max: 25, budget: 1 }, pending, apifyConfigured: true, onboarded: true, storage: "SQLite local" } };
@@ -22,6 +31,35 @@ async function fixture(page: Page, pending: any = null) {
   return { plans, starts, free, state };
 }
 
+test("bouton principal → aperçu → confirmation → start → poll → liste, sans paiement implicite", async ({ page }) => {
+  const f = await fixture(page);
+  let polls = 0;
+  const prospect = { id: "fixture-result", name: "Atelier local simulé", category: "Artisan", city: "Bordeaux", address: "1 rue fictive Bordeaux", website: "", email: "", phone: "", lat: null, lng: null, rating: null, reviews: null, selected: false, status: "Nouveau", demo: false, fields: {}, socials: {}, hours: "", photos: [], engine: "website", webStatus: "Non vérifié" };
+  const search = { id: "fixture-discovery", city: "Bordeaux", activity: "restaurant", keyword: "", provider: "Apify", kind: "discovery", engine: "website", ids: [prospect.id], count: 1, cost: 0.0125, warnings: [], createdAt: "2026-10-24T00:00:00Z" };
+  await page.route("**/api/apify/poll", async route => {
+    polls++;
+    Object.assign(f.state, { prospects: [prospect], searches: [search] });
+    f.state.settings.pending = null;
+    await route.fulfill({ json: { pending: false, runStatus: "SUCCEEDED", search } });
+  });
+  const prepare = page.getByRole("button", { name: "Préparer une recherche Apify", exact: true });
+  await page.getByLabel("Budget d’arrêt Apify (USD)").fill("0.5");
+  await prepare.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  expect(f.plans).toHaveLength(1); expect(f.starts).toHaveLength(0); expect(polls).toBe(0);
+  await page.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true }).click();
+  await expect(prepare).toBeDisabled();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(f.starts).toHaveLength(1); expect(f.starts[0]).toMatchObject({ budget: 0.5, confirmed: true });
+  expect(polls).toBe(0);
+  await page.getByRole("button", { name: "Récupérer la collecte", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("tbody tr")).toContainText("Atelier local simulé");
+  await expect(page.locator(".search-history")).toContainText("0.0125 USD");
+  await expect(prepare).toBeEnabled();
+  expect(f.starts).toHaveLength(1); expect(polls).toBe(1); expect(f.free).toHaveLength(0);
+});
+
 test("budget et critères invalident l’aperçu ; aucune confirmation implicite", async ({ page }) => {
   const f = await fixture(page);
   const prepare = page.getByRole("button", { name: "Préparer une recherche Apify", exact: true });
@@ -38,19 +76,31 @@ test("budget et critères invalident l’aperçu ; aucune confirmation implicite
   expect(f.starts).toHaveLength(0);
 });
 
-test("pending payant ne bloque pas le gratuit ; actualisation explicite et avertissements à zéro résultat", async ({ page }) => {
+test("submit principal prépare seulement Apify ; navigation et critères ne lancent aucune collecte", async ({ page }) => {
+  const f = await fixture(page);
+  const prepare = page.getByRole("button", { name: "Préparer une recherche Apify", exact: true });
+  await expect(prepare).toHaveCount(1);
+  await expect(prepare).toHaveClass(/primary/);
+  await expect(page.getByRole("button", { name: /Trouver 25 nouveaux|sources gratuites/ })).toHaveCount(0);
+  await page.getByLabel("Budget d’arrêt Apify (USD)").fill("0.5");
+  await page.getByLabel("NOM OU MOT-CLÉ").fill("artisan");
+  await page.getByRole("button", { name: "Tous les leads 0", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Tous les leads", exact: true })).toBeVisible();
+  await page.locator(".sidebar").getByRole("button", { name: "Trouver des prospects", exact: true }).click();
+  expect(f.plans).toHaveLength(0); expect(f.starts).toHaveLength(0); expect(f.free).toHaveLength(0);
+  await page.getByLabel("NOM OU MOT-CLÉ").press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  expect(f.plans).toEqual([{ city: "Bordeaux", activity: "restaurant", keyword: "artisan", engine: "website", max: 25, budget: 0.5 }]);
+  expect(f.starts).toHaveLength(0); expect(f.free).toHaveLength(0);
+});
+
+test("pending verrouille la recherche ; récupération explicite sans nouvelle dépense", async ({ page }) => {
   const f = await fixture(page, { runId: "runFixture12345" });
-  const free = page.getByRole("button", { name: "Trouver 25 nouveaux prospects", exact: true });
-  await expect(free).toBeEnabled();
-  await free.click();
-  expect(f.free[0].refreshPool).toBe(false);
-  await expect(page.getByText(/Source gratuite temporairement indisponible/)).toBeVisible();
-  const refill = page.getByRole("button", { name: "Actualiser les sources gratuites", exact: true });
-  await refill.click();
-  expect(f.free).toHaveLength(2); expect(f.free[1].refreshPool).toBe(true);
-  expect(f.free[0].requestId).not.toBe(f.free[1].requestId);
-  await expect(refill).toBeEnabled();
-  expect(f.starts).toHaveLength(0);
+  await expect(page.getByRole("button", { name: "Préparer une recherche Apify", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /Trouver 25 nouveaux|sources gratuites/ })).toHaveCount(0);
+  await page.route("**/api/apify/poll", route => route.fulfill({ json: { pending: true, status: "RUNNING" } }));
+  await page.getByRole("button", { name: "Récupérer la collecte", exact: true }).click();
+  expect(f.plans).toHaveLength(0); expect(f.starts).toHaveLength(0); expect(f.free).toHaveLength(0);
 });
 
 test("FINALIZING annonce le coût en cours et le résultat Apify conserve son vrai coût", async ({ page }) => {
@@ -75,7 +125,8 @@ test("lancement incertain : rafraîchit l’état, verrouille les paiements et n
   await page.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true }).click();
   await expect(page.getByRole("button", { name: "Associer le run", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Préparer une recherche Apify", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects", exact: true })).toHaveCount(0);
+  expect(f.free).toHaveLength(0);
   expect(f.starts).toHaveLength(1);
 });
 
@@ -115,5 +166,6 @@ test("aperçu local annulable, confirmation unique explicite et paramètres exac
   expect(f.plans[0]).toEqual({ city: "Bordeaux", activity: "restaurant", keyword: "menuisier", engine: "website", max: 25, budget: 1 });
   expect(f.starts[0]).toEqual({ ...f.plans[1], planId: "a".repeat(64), confirmed: true, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   await expect(prepare).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects" })).toHaveCount(0);
+  expect(f.free).toHaveLength(0);
 });

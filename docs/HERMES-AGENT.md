@@ -42,7 +42,7 @@ Cet en-tête est un **verrou d’action**, pas une preuve de consentement humain
 
 | Méthode et chemin | Réponse JSON |
 |---|---|
-| `GET /status` | `{ok, app:"ProspectIa-v2", apiVersion:1, business, capabilities, limits}`. Capacités de lecture, découverte gratuite, analyse, brouillons et transferts ; `paid`, `send`, `delete`, `settings`, `statusEdits` sont `false`. Limite de lot 25 et avertissement de non-exhaustivité. |
+| `GET /status` | `{ok, app:"ProspectIa-v2", apiVersion:1, business, capabilities, limits}`. Capacités de lecture, analyse, brouillons et transferts ; la découverte gratuite est désactivée (`discover:false`) ; `paid`, `send`, `delete`, `settings`, `statusEdits` sont `false`. `maxDiscovery:0` (collecte gratuite retirée) ; le plafond de 25 concerne uniquement le parcours Apify utilisateur avec confirmation. |
 | `GET /state` | `{prospects, searches, drafts, handoffs, business}`. Catalogue actuel et historique existants, références des recherches et brouillons résolues vers les prospects canoniques. `handoffs` contient uniquement `{id, prospectId, prospectName, engine, title, createdAt, warnings}`. Pas de `settings`, clés de fournisseur, sessions, réserves internes, tentatives d’email archivées ni données d’authentification. |
 | `GET /prospects/:id` | Fiche existante complète, audit et sources inclus ; `404` si absente. Les fiches en opposition restent lisibles pour respecter leur état. |
 | `GET /handoffs/:id` | Transfert existant complet `{id, prospectId, prospectName, engine, title, createdAt, prompt, dossier, warnings}`. Le dossier fait partie de la réponse, sans second téléchargement. Lecture seule, aucun nouvel audit. |
@@ -53,28 +53,9 @@ Cet en-tête est un **verrou d’action**, pas une preuve de consentement humain
 
 Les corps sont des objets JSON **stricts** : les champs inconnus sont rejetés, jamais supprimés silencieusement.
 
-#### `POST /discover`
+#### `POST /discover` — retiré
 
-```json
-{
-  "city": "Bordeaux",
-  "activity": "artisan",
-  "keyword": "menuisier",
-  "engine": "website",
-  "max": 25,
-  "requestId": "a0f04963-3985-45e2-a5e7-c4c996f85519"
-}
-```
-
-- `city` : chaîne nettoyée, 2–200 caractères.
-- `activity` : `all | restaurant | artisan | beauty | hotel | retail`.
-- `keyword` facultatif : chaîne nettoyée, 150 caractères maximum, défaut vide.
-- `engine` : `website | voice | menu` ; `voice` est l’identifiant historique de l’offre « agent personnel ».
-- `max` obligatoire : entier de 1 à 25.
-- `requestId` obligatoire : UUID ; réutiliser le même UUID lors d’une répétition du même lot et de la même requête normalisée ville/activité/mot-clé. Le résultat enregistré initial prévaut, y compris si `max` ou `engine` change lors de la répétition. Un nouveau lot demande un nouvel UUID.
-- `paid`, même `false`, `budget`, `refresh` et tout autre champ sont interdits. Le serveur force `paid:false` et appelle le service existant `discoverNext`.
-
-Réponse du service existant : `{search, prospects, cached, remaining?, exhausted?}` ; coût du nouveau lot **0**. Une répétition persistée peut omettre `remaining`/`exhausted`. Réserve épuisée : `{exhausted:true, prospects:[], remaining:0, message}`. Les entreprises connues sont exclues avant sauvegarde d’un lot inédit ; leurs statuts, oppositions et audits ne sont pas remplacés. Le fournisseur gratuit peut constituer une réserve de jusqu’à 250 candidats ; **25 est la limite du lot enregistré**, pas celle de la réserve collectée. Aucun appel Apify.
+La collecte gratuite est désactivée : cette route retourne **HTTP 410** sans consulter OpenStreetMap, Nominatim ou Sirene et sans lancer Apify. Les nouvelles recherches passent dans l’interface par **Préparer une recherche Apify**, puis une confirmation payante explicite. L’API agent ne reçoit aucune capacité de paiement ; les lectures et les autres actions bornées restent disponibles. Les anciens leads et historiques ne sont pas supprimés.
 
 #### `POST /prospects/:id/analyze`
 

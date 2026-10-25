@@ -2,7 +2,7 @@
 
 ProspectAI aide à trouver des entreprises locales, consulter leur présence web et préparer un **prompt accompagné d’un dossier complet pour Hermès IA**. Hermès réalise ensuite le projet dans son propre environnement, selon vos validations.
 
-Le parcours distingue les sources gratuites, la **recherche Apify avec exclusions avant facturation**, et l'enrichissement ciblé historique. La recherche Apify demande un aperçu et une confirmation : les identifiants déjà connus sont transmis en exclusion, avec une mémoire « uniquement nouveaux » conservée entre les runs. Un lot n'est pas garanti à 25 résultats et des frais de lancement peuvent subsister même sans résultat. Voir [le contrat et les limites Apify](docs/APIFY.md).
+Les nouvelles recherches utilisent uniquement **Apify avec exclusions avant facturation** ; le parcours gratuit OpenStreetMap/Sirene est désactivé. L'enrichissement ciblé historique reste disponible. La recherche Apify demande un aperçu et une confirmation : les identifiants déjà connus sont transmis en exclusion, avec une mémoire « uniquement nouveaux » conservée entre les runs. Un lot n'est pas garanti à 25 résultats et des frais de lancement peuvent subsister même sans résultat. Voir [le contrat et les limites Apify](docs/APIFY.md).
 
 Les recherches anciennes, les prospects, les sélections et les statuts restent conservés. Les prompts Hermès et l’offre d’agent personnel sont maintenus. Aucune connexion Gmail, publication de maquette ni API de rédaction n’est utilisée.
 
@@ -47,7 +47,7 @@ Vérifications disponibles : compilation TypeScript/Vite, tests métier/API et p
 
 1. Dans **Paramètres**, renseigner votre business, vos services, votre zone, vos tarifs indicatifs et votre ton. Le site de votre entreprise peut préremplir ses textes publics. Le champ **Vos consignes complémentaires pour Hermès** permet d’ajouter votre style, vos exemples et vos préférences de livraison.
 2. Choisir un moteur avant la recherche : création/refonte de site, menus et supports, ou projet d’agent personnel.
-3. Utiliser **Trouver 25 nouveaux prospects** pour les sources gratuites, ou **Préparer une recherche Apify** pour examiner le fournisseur, les exclusions et le budget avant une confirmation payante explicite. L’import CSV, la démo et l’historique restent disponibles sans collecte Apify.
+3. Utiliser le bouton principal **Préparer une recherche Apify** pour examiner le fournisseur, les exclusions et le budget avant une confirmation payante explicite. L’import CSV, la démo et l’historique restent disponibles sans collecte Apify.
 4. Sélectionner une entreprise et consulter sa fiche : coordonnées, sources et dates. Une absence dans les sources ne prouve pas une absence réelle.
 5. Cliquer **Préparer le prompt Hermès**. Si un site est renseigné et n’a pas encore été analysé, ProspectAI tente d’en collecter les contenus publics. Si la lecture échoue, le dossier et le prompt indiquent explicitement cette limite.
 6. Dans la fenêtre qui s’ouvre, télécharger **Dossier complet · JSON**, puis copier le prompt ou télécharger sa version Markdown.
@@ -74,11 +74,11 @@ L’archivage est distinct de **Ne plus contacter**, qui reste conservé. Un lea
 
 ## Lots de 25 sans recommencer les mêmes entreprises
 
-Le bouton principal prépare jusqu’à **25 entreprises inédites dans la base**. Il consulte OpenStreetMap et, en France, Sirene ; aucune recherche Apify payante n’est déclenchée. Une collecte gratuite bornée (jusqu’à 250 résultats OSM et trois pages Sirene) alimente une réserve persistante. Chaque clic suivant prélève le lot suivant et exclut les fiches entrées entre-temps, même dans une autre recherche. Un verrou persistant et un identifiant de demande empêchent la consommation concurrente et la répétition accidentelle du même lot.
+Le bouton principal **Préparer une recherche Apify** prépare un aperçu local pour un maximum de **25 entreprises**. Il ne consulte ni OpenStreetMap, ni Nominatim, ni Sirene. Le lancement Apify nécessite ensuite une confirmation explicite et un budget valide. Un verrou persistant et un identifiant de demande empêchent la répétition accidentelle du même run.
 
-Les 25 résultats ne sont pas garantis : si la réserve ne contient plus d’entreprise inédite, l’application le dit et s’arrête. Elle ne reprend pas les premières fiches et ne lance pas de collecte payante pour compléter. Modifier la zone ou importer des candidats permet de poursuivre. Un épuisement de cette réserve bornée ne prouve pas l’exhaustivité du marché. Une collecte en erreur n’entraîne aucun repli payant. Une réserve épuisée peut être actualisée explicitement avec les sources gratuites ; leurs avertissements restent visibles, même sans résultat. Une collecte Apify en attente ne bloque pas ce parcours gratuit.
+Les identifiants connus, y compris ceux des leads archivés, sont transmis en exclusion avant lancement. Les 25 résultats ne sont pas garantis et un frais de démarrage peut subsister même sans résultat. Une erreur n’entraîne aucun repli vers une collecte gratuite ni nouvelle tentative payante automatique.
 
-Les métiers français pris en charge, notamment menuisier, plombier, électricien, peintre et couvreur, sont rapprochés des catégories OSM et des codes NAF plutôt que recherchés uniquement dans le nom commercial. Les données conservent leurs sources, sans inventer de coordonnées.
+Les anciens leads et historiques issus des sources gratuites restent consultables et exportables ; seule leur collecte est retirée du parcours. La carte conserve ses tuiles OpenStreetMap, qui ne constituent pas un moteur de recherche d’entreprises.
 
 Chaque lot et chaque ancienne recherche sont enregistrés avec critères, sources et date. L’historique regroupe les versions et permet de les ouvrir après un redémarrage. **Revoir les fiches enregistrées** affiche les fiches déjà obtenues pour ces critères sans les qualifier de nouveaux prospects. La réouverture des anciennes recherches Google Maps réunit leurs résultats déjà payés ; toute relance payante par mot-clé avec l’ancien Actor Compass, y compris avec `refresh`, reste refusée côté serveur. La nouvelle recherche Apify suit un parcours séparé avec exclusions et confirmation. Ses résultats restent traçables dans le même historique.
 
@@ -112,7 +112,7 @@ Les URL/Place IDs directs déclenchent une tarification de base et de détails s
 
 Ce contrôle empêche la réutilisation des identifiants déjà connus ou réservés, sans prétendre qu’un fournisseur ne peut jamais renvoyer un établissement erroné ou un second identifiant pour une même entreprise. L’historique réel est conservé pour détecter ces cas. L’exécution payante et la facturation de ce nouveau mode n’ont pas été testées en production ; les contrôles sont testés avec fournisseurs simulés, sans crédit dépensé.
 
-ChatGPT Plus ne finance ni Apify ni l’hébergement. La recherche gratuite et les prompts Hermès restent utilisables sans Apify.
+ChatGPT Plus ne finance ni Apify ni l’hébergement. L’historique, l’import CSV, la démo et les prompts Hermès restent utilisables sans collecte Apify.
 
 ## Analyse des sites et fidélité du dossier
 
@@ -124,7 +124,7 @@ Le score technique examine HTTPS, balise viewport, copyright et temps indicatif 
 
 ## Données, accès et anciennes versions
 
-En local, les données persistent dans `.data/prospectai.sqlite` via libSQL, au format SQLite. Avec TURSO_DATABASE_URL, elles résident dans votre base Turso distante. Les tables principales sont prospects, searches, drafts, handoffs et settings. La réserve gratuite reste dans les paramètres de base ; `apify_place_claims` conserve les identifiants réservés avant paiement. Les deux sont inclus dans l’export. Sessions, limites de connexion et oppositions de contact sont conservées séparément. Les clés API sont exclues de l’export.
+En local, les données persistent dans `.data/prospectai.sqlite` via libSQL, au format SQLite. Avec TURSO_DATABASE_URL, elles résident dans votre base Turso distante. Les tables principales sont prospects, searches, drafts, handoffs et settings. Les anciennes réserves gratuites sont conservées dans les paramètres de base sans être réutilisées pour de nouvelles recherches ; `apify_place_claims` conserve les identifiants réservés avant paiement. Les deux sont inclus dans l’export. Sessions, limites de connexion et oppositions de contact sont conservées séparément. Les clés API sont exclues de l’export.
 
 L’espace personnel utilise APP_PASSWORD, un cookie de session HttpOnly valable 12 heures et une limite persistante de tentatives de connexion. La déconnexion révoque la session ; changer APP_PASSWORD invalide les sessions existantes. Ce n’est pas une application multiutilisateur.
 
@@ -146,11 +146,11 @@ Le mode Vercel refuse l’accès applicatif sans mot de passe et clé de chiffre
 
 ## Réseau et limites
 
-Domaines nécessaires : registry.npmjs.org pour l’installation ; api.apify.com pour la collecte payante ; nominatim.openstreetmap.org, overpass-api.de, overpass.kumi.systems et tile.openstreetmap.org pour OSM ; recherche-entreprises.api.gouv.fr pour Sirene ; les sites des entreprises pour l’analyse ; fonts.googleapis.com/fonts.gstatic.com pour les polices optionnelles ; le domaine de votre base Turso si vous l’utilisez.
+Domaines nécessaires : registry.npmjs.org pour l’installation ; api.apify.com pour la collecte payante ; tile.openstreetmap.org uniquement pour les tuiles de la carte (pas pour rechercher des entreprises) ; les sites des entreprises pour l’analyse ; fonts.googleapis.com/fonts.gstatic.com pour les polices optionnelles ; le domaine de votre base Turso si vous l’utilisez.
 
-Les URL internes, credentials dans les URL, ports non standards et redirections vers IP privées sont refusés. Chaque page HTML est limitée à 2 Mo. Les tuiles OSM sont consultées à la demande, mises en cache sept jours et attribuées à OpenStreetMap. Une défaillance des services publics ou une restriction réseau est affichée ; la démo et l’import restent utilisables.
+Les URL internes, credentials dans les URL, ports non standards et redirections vers IP privées sont refusés. Chaque page HTML est limitée à 2 Mo. Les tuiles OSM sont consultées à la demande, mises en cache sept jours et attribuées à OpenStreetMap. La carte reste indépendante de la recherche Apify ; la démo et l’import restent utilisables.
 
-Les essais de recherche réelle ont rencontré des erreurs réseau dans l’environnement de création ; la disponibilité complète OSM/Sirene n’y est pas validée. Aucune collecte facturée n’a été déclenchée. Les parcours démo/import, l’analyse sur sources simulées et les contrôles du contrat Apify sont testés.
+Le parcours de collecte gratuite OSM/Sirene est désactivé côté interface et API. Aucune collecte Apify facturée n’a été déclenchée lors des vérifications. Les parcours démo/import, l’analyse sur sources simulées et les contrôles du contrat Apify sont testés.
 
 ## Dépanner le démarrage
 

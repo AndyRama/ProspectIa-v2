@@ -22,7 +22,7 @@ test("Rapprochement : protège les établissements distincts malgré un nom ou u
   assert.equal(sameEstablishment(fixture, { ...fixture, id: "demo", demo: true }), false);
 });
 
-test("Bordeaux menuisiers : anciennes recherches conservées, aucune collecte répétée, actualisation sans doublon et reprise après redémarrage", async () => {
+test("Bordeaux menuisiers : historique gratuit conservé, nouvelles collectes bloquées et reprise après redémarrage", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "prospectai-history-"));
   const base = "http://127.0.0.1:3197/api";
   let proc: ChildProcess | undefined;
@@ -65,32 +65,29 @@ test("Bordeaux menuisiers : anciennes recherches conservées, aucune collecte r�
       assert.equal(reused.cached, true); assert.equal(reused.prospects.length, 1);
     }
     const blocked = await fetch(base + "/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...q, paid: true, refresh: true }) });
-    assert.equal(blocked.status, 422); assert.match((await blocked.json()).error, /Relance payante bloquée/);
+    assert.equal(blocked.status, 422); assert.match((await blocked.json()).error, /Apify.*plan.*confirmation/);
     await assert.rejects(readFile(path.join(dir, "provider-calls.json")), { code: "ENOENT" });
     await request("/prospects/apify-old", { selected: false, status: "Gagné", doNotContact: true }, "PATCH");
     const handoff = await request(`/prospects/${fixture.id}/handoffs`, { engine: "voice" });
     assert.match(handoff.title, /agent personnel/); assert.match(handoff.prompt, /organiser son activité/);
     assert.doesNotMatch(handoff.prompt, /agent vocal|accueil vocal/i);
-    const refresh = await request("/search", { ...q, refresh: true });
-    assert.equal(refresh.cached, false); assert.equal(refresh.prospects.length, 2);
-    assert.equal(refresh.search.newCount, 1); assert.equal(refresh.search.knownCount, 1);
-    const original = refresh.prospects.find((p: Prospect) => p.id === fixture.id);
-    assert.equal(original.status, "Gagné"); assert.equal(original.selected, false); assert.equal(original.doNotContact, true);
-    assert.equal(original.email, "public@example.com");
-    assert.equal((await request("/state")).searches.length, 3);
-    const repeat = await request("/search", q); assert.equal(repeat.cached, true); assert.equal(repeat.search.id, refresh.search.id);
+    const before = await request("/state");
     const refreshRequest = { ...q, refresh: true, requestId: "e8ceac37-89d8-4fcb-95d9-0d97eb736604" };
-    const concurrent = await Promise.all([request("/search", refreshRequest), request("/search", refreshRequest)]);
-    assert.equal(concurrent[0].search.id, concurrent[1].search.id);
-    assert.equal((await request("/state")).searches.length, 4);
-    const calls = JSON.parse(await readFile(path.join(dir, "provider-calls.json"), "utf8"));
-    assert.equal(calls.osm, 2); assert.equal(calls.unexpected, undefined);
+    const attempts = [refreshRequest, refreshRequest, { ...q, intent: "discover", requestId: refreshRequest.requestId, refreshPool: true }];
+    for (const body of attempts) {
+      const response = await fetch(base + "/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      assert.equal(response.status, 422);
+      assert.match((await response.json()).error, /Apify.*plan.*confirmation/);
+    }
+    assert.deepEqual(await request("/state"), before, "no new search and no overwritten user state");
+    await assert.rejects(readFile(path.join(dir, "provider-calls.json")), { code: "ENOENT" });
     await stop(); await start();
-    const resumed = await request("/state"); assert.equal(resumed.searches.length, 4); assert.equal(resumed.prospects.length, 2);
+    const resumed = await request("/state"); assert.equal(resumed.searches.length, 2); assert.equal(resumed.prospects.length, 1);
     const saved = await request("/searches/old-free"); assert.equal(saved.prospects.length, 1); assert.equal(saved.prospects[0].status, "Gagné"); assert.equal(saved.prospects[0].selected, false);
+    assert.equal(saved.prospects[0].doNotContact, true); assert.equal(saved.prospects[0].email, "public@example.com");
     const reopened = await request("/search", q); assert.equal(reopened.cached, true);
-    assert.deepEqual(JSON.parse(await readFile(path.join(dir, "provider-calls.json"), "utf8")), calls);
+    await assert.rejects(readFile(path.join(dir, "provider-calls.json")), { code: "ENOENT" });
     const exported = await request("/export"); assert.ok(exported.archivedDuplicateProspects.some((p: Prospect) => p.id === duplicate.id));
-    assert.equal(exported.prospects.length, 2); assert.equal(exported.searches.length, 4);
+    assert.equal(exported.prospects.length, 1); assert.equal(exported.searches.length, 2);
   } finally { await stop(); await rm(dir, { recursive: true, force: true }); }
 });

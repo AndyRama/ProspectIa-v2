@@ -49,11 +49,9 @@ Compass reçoit des `placeIds`, jamais une nouvelle recherche par mots-clés. Le
 
 Un Run ID ne suffit pas : avant rattachement, contrôler l'Actor, le propriétaire, la chronologie et l'entrée du run par rapport à la collecte en attente. Un run historique, d'un autre compte ou d'un autre lot doit être refusé sans lever le verrou. Une ancienne collecte incertaine sans éléments de correspondance suffisants demande une vérification manuelle, pas un rattachement approximatif.
 
-## Recherche gratuite
+## Collecte gratuite retirée
 
-Un run Apify en attente ne doit pas désactiver la recherche gratuite. Une réserve épuisée peut être actualisée explicitement, sans lancement Apify ni perte de l'historique. Les avertissements des sources restent visibles, même pour un résultat vide.
-
-Les métiers français pris en charge sont rapprochés des catégories OSM/NAF : une fiche de plombier n'est pas rejetée uniquement parce qu'elle utilise `plumber` ou un code NAF plutôt que le mot français dans son nom.
+La recherche d’entreprises OpenStreetMap/Nominatim/Sirene est désactivée côté interface et route `/api/search`. Les nouvelles recherches passent exclusivement par l’aperçu et la confirmation Apify ; aucun paiement n’est déclenché implicitement par un appel ancien à `/api/search`. Les anciens leads, recherches et réserves sont conservés, sans réinitialiser la base. La carte peut toujours afficher des tuiles OpenStreetMap : cet affichage ne collecte aucune nouvelle entreprise.
 
 ## Vérifications et limites
 

@@ -90,7 +90,7 @@ test("Parcours bureau et mobile : recherche, fiche, sélection, rédaction, prom
   );
   await page.getByRole("button", { name: "Trouver des prospects" }).click();
   await expect(page.getByLabel("Recherche payante (Apify)")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Préparer une recherche Apify" })).toBeVisible();
   await page.screenshot({
     path: ".data/prospectai-desktop.png",
     fullPage: true,
@@ -144,7 +144,7 @@ test("Historique Bordeaux : restauration des critères, fiche unique, collecte a
   await page.getByText("1 collecte(s) précédente(s) conservée(s)", { exact: true }).click();
   await page.locator(".history-versions button").click();
   await expect(page.getByLabel("NOM OU MOT-CLÉ")).toHaveValue("menuisier");
-  await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Préparer une recherche Apify" })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
   await page.screenshot({ path: ".data/prospectai-history-mobile.png", fullPage: true });
@@ -156,13 +156,13 @@ test("Historique Bordeaux : restauration des critères, fiche unique, collecte a
   expect((await (await request.get("/api/state")).json()).prospects).toHaveLength(1);
 });
 
-test("Trois lots de 25 inédits : réserve locale, aucune répétition et anciens identifiants interdits au paiement", async ({ page, request }) => {
+test("Trois lots Apify confirmés de 25 inédits : historique préservé et anciens identifiants interdits au paiement", async ({ page, request }) => {
   const { createClient } = await import("@libsql/client");
-  const { createHash } = await import("node:crypto");
+
   const { tmpdir } = await import("node:os");
   const path = await import("node:path");
   const { pathToFileURL } = await import("node:url");
-  const { queryKey } = await import("../server/searchQuery");
+
   await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } });
   const client = createClient({ url: pathToFileURL(path.join(tmpdir(), "prospectai-browser-tests", "prospectai.sqlite")).href });
   const query = { city: "Bordeaux", activity: "artisan", keyword: "menuisier", paid: false };
@@ -171,28 +171,58 @@ test("Trois lots de 25 inédits : réserve locale, aucune répétition et ancien
     return { id: i < 37 ? "apify-" + placeId : `reserve-${i}`, name: `Atelier ${i}`, category: "Artisan menuisier", city: "Bordeaux", address: `${i + 1} rue des Lilas Bordeaux`, website: "", email: "", phone: "", lat: 44.84, lng: -0.58, rating: null, reviews: null, selected: i < 37, status: "Contacté", demo: false, fields: i < 37 ? { placeId: { value: placeId, source: "Apify", collectedAt: "2026-10-19" } } : {}, socials: {}, hours: "", photos: [], engine: "voice", webStatus: "Non vérifié" };
   });
   const history = { id: "paid-legacy", ...query, query: { ...query, paid: true }, provider: "Apify", cost: 0.1342, ids: rows.slice(0, 37).map((p) => p.id), count: 37, engine: "voice", createdAt: "2026-10-19T10:00:00Z" };
-  const key = "discoveryPool:" + createHash("sha256").update(queryKey(query)).digest("hex");
   await client.batch([
     ...rows.slice(0, 37).map((p) => ({ sql: "INSERT INTO prospects VALUES(?,?)", args: [p.id, JSON.stringify(p)] })),
     { sql: "INSERT INTO searches VALUES(?,?)", args: [history.id, JSON.stringify(history)] },
-    { sql: "INSERT INTO settings VALUES(?,?)", args: [key, JSON.stringify({ remaining: rows, provider: "OpenStreetMap", query, warnings: [], createdAt: "2026-10-20T08:00:00Z" })] },
   ], "write"); client.close();
+  const plans: any[] = [], starts: any[] = [], forbidden: string[] = [];
+  page.on("request", req => { if (new URL(req.url()).pathname === "/api/search") forbidden.push(req.url()); });
+  await page.route("**/api/state", async route => {
+    const state = await (await request.get("/api/state")).json();
+    state.settings.apifyConfigured = true;
+    await route.fulfill({ json: state });
+  });
+  // Provider boundary simulated; fixture imports persist into the isolated test database.
+  await page.route("**/api/apify/discovery/plan", async route => {
+    const input = route.request().postDataJSON(); plans.push(input);
+    const state = await (await request.get("/api/state")).json();
+    await route.fulfill({ json: { ...input, planId: "a".repeat(64), actor: "benthepythondev/google-maps-business-scraper", excludedCount: state.prospects.length, unidentifiedCount: 0, warnings: [] } });
+  });
+  await page.route("**/api/apify/discovery/start", async route => {
+    const input = route.request().postDataJSON(); starts.push(input);
+    const batch = starts.length - 1;
+    if (batch === 3) return route.fulfill({ json: { message: "Aucun candidat inédit retourné par Apify. Des frais de lancement restent possibles." } });
+    const candidates = rows.slice(37 + batch * 25, 62 + batch * 25);
+    const imported = await (await request.post("/api/import", { data: { text: "name,city,category,address\n" + candidates.map(p => `${p.name},${p.city},${p.category},${p.address}`).join("\n") } })).json();
+    await route.fulfill({ json: { search: { id: `fixture-paid-${batch}`, city: "Bordeaux", activity: "artisan", keyword: "menuisier", engine: "voice", provider: "Apify", ids: imported.prospects.map((p: any) => p.id), count: 25, newCount: 25, cost: 0.0125, warnings: [] } } });
+  });
   await page.goto("/");
   const seen = new Set<string>();
   for (let batch = 0; batch < 3; batch++) {
-    const response = page.waitForResponse((r) => r.url().endsWith("/api/search") && r.request().method() === "POST");
-    await page.getByRole("button", { name: "Trouver 25 nouveaux prospects" }).click();
+    await page.getByRole("button", { name: "Préparer une recherche Apify" }).click();
+    await expect(page.getByRole("dialog")).toContainText(`${37 + batch * 25}`);
+    expect(starts).toHaveLength(batch);
+    const response = page.waitForResponse((r) => r.url().endsWith("/api/apify/discovery/start") && r.request().method() === "POST");
+    await page.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true }).click();
     const result = await (await response).json();
-    expect(result.search.count).toBe(25); expect(result.search.newCount).toBe(25); expect(result.search.cost).toBe(0);
+    expect(result.search.count).toBe(25); expect(result.search.newCount).toBe(25); expect(result.search.cost).toBe(0.0125);
     for (const id of result.search.ids) { expect(seen.has(id)).toBe(false); expect(id.startsWith("apify-")).toBe(false); seen.add(id); }
     await expect(page.locator("tbody tr")).toHaveCount(25);
-    await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Préparer une recherche Apify" })).toBeEnabled();
   }
   expect(seen.size).toBe(75);
-  await page.getByRole("button", { name: "Trouver 25 nouveaux prospects" }).click();
-  await expect(page.getByText(/Aucun candidat inédit dans cette réserve gratuite/)).toBeVisible();
+  await page.getByRole("button", { name: "Préparer une recherche Apify" }).click();
+  expect(starts).toHaveLength(3);
+  await page.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Aucun candidat inédit retourné par Apify");
   await expect(page.locator("tbody tr")).toHaveCount(0);
-  expect((await (await request.get("/api/state")).json()).prospects).toHaveLength(112);
+  const persisted = await (await request.get("/api/state")).json();
+  expect(persisted.prospects).toHaveLength(112);
+  expect(persisted.searches).toContainEqual(history);
+  expect(forbidden).toEqual([]);
+  expect(plans).toHaveLength(4); expect(starts).toHaveLength(4);
+  for (const input of starts) expect(input).toMatchObject({ confirmed: true, budget: 1, max: 25, planId: "a".repeat(64) });
+  expect(new Set(starts.map(input => input.requestId)).size).toBe(4);
   await page.getByRole("button", { name: /Ma sélection/ }).click();
   await page.getByRole("button", { name: "Vérifier un lot Apify avant paiement" }).click();
   await expect(page.getByRole("dialog")).toContainText("37 déjà collecté(s) ou réservé(s) exclu(s)");

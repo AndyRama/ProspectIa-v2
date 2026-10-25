@@ -124,9 +124,9 @@ test("Refuse les paiements sans token et les dépassements des limites", async (
   };
   const missing = await request("/search", "POST", q);
   assert.equal(missing.status, 422);
-  assert.match(missing.data.error, /payante par mot-clé bloquée/);
+  assert.match(missing.data.error, /Apify.*plan.*confirmation/);
   const over = await request("/search", "POST", { ...q, budget: 2 });
-  assert.match(over.data.error, /payante par mot-clé bloquée/);
+  assert.match(over.data.error, /Apify.*plan.*confirmation/);
   const invalid = await request("/search", "POST", { ...q, max: -1 });
   assert.equal(invalid.status, 400);
 });
