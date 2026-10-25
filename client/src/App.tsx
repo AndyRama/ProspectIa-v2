@@ -55,6 +55,7 @@ import { makeQuery, queryForSearch, queryKey } from "../../server/searchQuery";
 type Page =
   | "search"
   | "leads"
+  | "archives"
   | "selection"
   | "drafts"
   | "handoffs"
@@ -117,6 +118,23 @@ const opportunity = (p: Prospect, e: Engine) =>
     : e === "voice"
       ? /artisan|menuis|carpenter|joiner|plomb|craft|électric|coiff|hair|garage|43\.|45\.20|96\.02/i.test(p.category)
       : /restaurant|cafe|café|bar|food|56\./i.test(p.category);
+function emailBlockReason(p: Prospect): string {
+  if (p.archived) return "Lead archivé : désarchivez-le pour préparer un prompt email.";
+  if (p.demo) return "Fiche de démonstration : aucun contact réel autorisé.";
+  if (p.doNotContact) return "Opposition au contact : aucun prompt email autorisé. Ne modifiez pas l’adresse pour contourner ce refus.";
+  if (!p.email) return "Adresse email manquante : complétez une adresse professionnelle vérifiée dans la fiche.";
+  if (!emailPromptEligible(p)) return "Adresse email invalide ou réservée : corrigez-la avec une adresse professionnelle vérifiée.";
+  return "";
+}
+function ProspectEmailEditor({ prospect, busy, onSave }: { prospect: Prospect; busy: boolean; onSave: (email: string) => void }) {
+  const [email, setEmail] = useState(prospect.email || "");
+  useEffect(() => setEmail(prospect.email || ""), [prospect.email]);
+  return <form className="drawer-engine" onSubmit={(event) => { event.preventDefault(); onSave(email.trim()); }}>
+    <label>Adresse email du prospect<input type="email" maxLength={254} required value={email} disabled={busy} onChange={(event) => setEmail(event.target.value)} placeholder="Adresse professionnelle vérifiée" /></label>
+    <p>Renseignez uniquement une adresse professionnelle que vous avez vérifiée. Aucune adresse n’est inventée et aucun message n’est envoyé.</p>
+    <button className="button ghost small" type="submit" disabled={busy || email.trim() === (prospect.email || "") || !emailPromptEligible({ ...prospect, email: email.trim() })}>{busy ? "Enregistrement…" : "Enregistrer l’email"}</button>
+  </form>;
+}
 function Link({ href, children }: { href: string; children: React.ReactNode }) {
   return safeUrl(href) ? (
     <a href={safeUrl(href)} target="_blank" rel="noreferrer">
@@ -147,7 +165,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     [keyword, setKeyword] = useState(""),
     [budget, setBudget] = useState(1),
     [searchRecord, setSearchRecord] = useState<SearchRecord | null>(null),
-    [archiveFilter, setArchiveFilter] = useState("all"),
     [filterEmail, setFilterEmail] = useState("all"),
     [fit, setFit] = useState("all"),
     [sort, setSort] = useState("source"),
@@ -228,8 +245,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     }
   }
   const go = (p: Page) => {
-    if (p === "leads") {
-      setArchiveFilter("all"); setFilterEmail("all"); setFit("all"); setSort("source");
+    if (p === "leads" || p === "archives") {
+      setFilterEmail("all"); setFit("all"); setSort("source");
       setMinRating(""); setMinReviews(""); setWebFilter("all"); setSocialFilter(false);
     }
     setPage(p);
@@ -306,6 +323,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       await refresh(); go("handoffs"); setPreview(result);
       setNotice({ text: "Un prompt email pour default est prêt. Aucun brouillon Gmail créé, aucun message envoyé ni relance activée par ProspectAI." });
     });
+  const emailAction = (p: Prospect, full = false) => <div>
+    <button className={full ? "button primary full" : "button ghost small"} disabled={!!busy || !emailPromptEligible(p)} aria-describedby={`email-reason-${full ? "drawer" : "row"}-${p.id}`} onClick={() => generate(p)}>
+      {busy === "email-prompt" ? <LoaderCircle size={16} className="spin" /> : <Mail size={16} />}Préparer le prompt email · default
+    </button>
+    <small id={`email-reason-${full ? "drawer" : "row"}-${p.id}`} className="source-note" style={{ display: "block", whiteSpace: "normal", maxWidth: full ? undefined : 260 }}>{emailBlockReason(p) || "Transfert manuel · aucun envoi ni activation. Premier mail à valider ; relances J3/J7/J15/J31 à approuver par campagne."}</small>
+    {!full && !p.archived && !p.demo && !p.doNotContact && !emailPromptEligible(p) && <button className="text-link" onClick={() => setOpened(p)}>{p.email ? "Corriger l’email" : "Compléter l’email"}</button>}
+  </div>;
   const createHandoff = (p: Prospect) =>
     task("handoff", async () => {
       const result = await api<Omit<HermesHandoff, "dossier">>(`/prospects/${p.id}/handoffs`, "POST", { engine });
@@ -329,12 +353,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     );
   const canonical = state.prospects.filter((p) => !p.duplicateOf);
   let rows = canonical.filter((p) =>
-    page === "leads"
-      ? archiveFilter === "all" || (archiveFilter === "archived" ? !!p.archived : !p.archived)
+    page === "leads" || page === "archives"
+      ? page === "archives" ? !!p.archived : !p.archived
       : !p.archived && (page === "selection" ? p.selected : !activeIds || activeIds.includes(p.id)),
   );
   const total = rows.length;
-  rows = page === "leads" ? rows : rows.filter(
+  const directory = page === "leads" || page === "archives";
+  rows = directory ? rows : rows.filter(
     (p) =>
       (fit !== "opportunities" || opportunity(p, engine)) &&
       (filterEmail === "all" ||
@@ -350,7 +375,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     rows.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
   if (sort === "reviews")
     rows.sort((a, b) => (b.reviews ?? -1) - (a.reviews ?? -1));
-  if (page !== "leads" && sort === "source" && activeIds) {
+  if (!directory && sort === "source" && activeIds) {
     const order = new Map(activeIds.map((id, index) => [id, index]));
     rows.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
   }
@@ -372,6 +397,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const pageNames: Record<Page, string> = {
     search: "Recherche de prospects",
     leads: "Tous les leads",
+    archives: "Archives",
     selection: "Ma sélection",
     drafts: "Mes brouillons",
     handoffs: "Prompts pour Hermès",
@@ -427,7 +453,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         <div className="nav-label">VOTRE PROSPECTION</div>
         <nav>
           {nav("search", Search, "Trouver des prospects")}
-          {nav("leads", Store, "Tous les leads", canonical.length)}
+          {nav("leads", Store, "Tous les leads", canonical.length - archivedCount)}
+          {nav("archives", Archive, "Archives", archivedCount)}
           {nav("selection", Bookmark, "Ma sélection", selected.length)}
           {nav("drafts", Mail, "Mes brouillons", state.drafts.length)}
         </nav>
@@ -853,17 +880,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </div>
             </>
           )}
-          {(page === "selection" || page === "search" || page === "leads") && (
+          {(page === "selection" || page === "search" || directory) && (
             <>
-              {page === "leads" && (
+              {directory && (
                 <>
-                  <div className="page-hero"><div><div className="eyebrow">VOTRE RÉPERTOIRE</div><h1>Tous les leads</h1><p>Toutes vos entreprises enregistrées, toutes villes et tous moteurs confondus. Archiver conserve le dossier et son historique, sans supprimer les données.</p></div><Store className="hero-icon" size={45} /></div>
+                  <div className="page-hero"><div><div className="eyebrow">VOTRE RÉPERTOIRE</div><h1>{pageNames[page]}</h1><p>{page === "archives" ? "Tous vos leads archivés, toutes villes et tous moteurs confondus. Désarchivez un lead pour le retrouver dans Tous les leads, sans perdre son dossier ni son historique." : "Vos entreprises actives, toutes villes et tous moteurs confondus. Les leads archivés sont conservés dans Archives, sans suppression de données."}</p></div><Store className="hero-icon" size={45} /></div>
                   <div className="import-actions">
                     <button className="button ghost small" disabled={!!busy} onClick={() => setImporting(true)}><Upload size={14} />Importer CSV</button>
                     <button className="button ghost small" disabled={!!busy} onClick={() => setImportingExcel(true)}><Upload size={14} />Importer Excel</button>
-                  </div>
-                  <div className="tabs" aria-label="Filtrer les leads">
-                    {[["all", "Tous", canonical.length], ["active", "Actifs", canonical.length - archivedCount], ["archived", "Archivés", archivedCount]].map(([id, label, count]) => <button key={id} aria-pressed={archiveFilter === id} className={archiveFilter === id ? "active" : ""} onClick={() => setArchiveFilter(String(id))}>{label} {count}</button>)}
                   </div>
                 </>
               )}
@@ -893,16 +917,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 <h3>
                   {page === "selection"
                     ? "Ma sélection"
-                    : page === "leads" ? "Entreprises enregistrées" : "Votre terrain d’opportunités"}{" "}
+                    : directory ? page === "archives" ? "Entreprises archivées" : "Entreprises enregistrées" : "Votre terrain d’opportunités"}{" "}
                   <span className="count">{rows.length}</span>
                 </h3>
                 <span>
                   <MapPin size={13} />
-                  {page === "leads" ? "Toutes les villes" : city}
+                  {directory ? "Toutes les villes" : city}
                 </span>
               </div>
               <section className="card table-card">
-                {page !== "leads" && <div className="table-toolbar">
+                {!directory && <div className="table-toolbar">
                   <label>
                     Adéquation à mon entreprise
                     <select
@@ -974,7 +998,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                         <th>PRÉSENCE WEB</th>
                         <th>IDENTIFIANT</th>
                         <th>
-                          {page === "selection" || page === "leads" ? "STATUT" : "QUALIFICATION"}
+                          {page === "selection" || directory ? "STATUT" : "QUALIFICATION"}
                         </th>
                         <th />
                       </tr>
@@ -1048,11 +1072,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               </select>
                             ) : (
                               <span className="qualification">
-                                {page === "leads" ? p.status : opportunity(p, engine)
+                                {directory ? p.status : opportunity(p, engine)
                                   ? engines[engine].name
                                   : "À qualifier"}
                                 <small>
-                                  {page === "leads" ? engines[p.engine].short : p.audit
+                                  {directory ? engines[p.engine].short : p.audit
                                     ? "Analyse indicative"
                                     : "À confirmer avec le professionnel"}
                                 </small>
@@ -1069,6 +1093,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                                 <ArrowRight size={15} />
                               </button>
                               {archiveButton(p)}
+                              {!p.archived && emailAction(p)}
                             </div>
                           </td>
                         </tr>
@@ -1394,6 +1419,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   <span className="demo-tag">Démonstration fictive</span>
                 )}
               </div>
+              {!opened.demo && !opened.archived && !opened.doNotContact && <ProspectEmailEditor key={opened.id} prospect={opened} busy={!!busy} onSave={(email) => task("save-email", async () => {
+                const id = opened.id;
+                await api(`/prospects/${id}/email`, "PATCH", { email });
+                const updated = await refresh();
+                if (updated.prospects.find((p) => p.id === id)?.email !== email) throw new Error("La modification de l’email n’a pas été confirmée. Réessayez.");
+                setNotice({ text: "Adresse email enregistrée. Aucun message envoyé ni relance activée." });
+              })} />}
               <section className="dossier">
                 <div className="section-top">
                   <h3>Le dossier de l’entreprise</h3>
@@ -1598,22 +1630,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   ? "Préparation…"
                   : engine === "website" ? "Préparer le prompt refonte · coder" : "Préparer le prompt Hermès"}
               </button>
-              <button
-                className="button primary full"
-                disabled={!!busy || !emailPromptEligible(opened)}
-                onClick={() => generate(opened)}
-              >
-                {busy === "email-prompt" ? (
-                  <LoaderCircle className="spin" size={17} />
-                ) : (
-                  <Sparkles size={17} />
-                )}
-                Préparer le prompt email · default
-                <ArrowRight size={16} />
-              </button>
-              <small>
-                {emailPromptEligible(opened) ? "Transfert manuel · aucun envoi ni activation. Premier mail à valider ; relances J3/J7/J15/J31 à approuver par campagne." : "Email réel valide requis · hors démo, archivage et opposition. Aucun envoi ni activation."}
-              </small>
+              {emailAction(opened, true)}
             </div>
           </aside>
         </>

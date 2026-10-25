@@ -53,10 +53,12 @@ test("archive waits for persisted readback, disables repeated actions and report
   await page.unroute(`**/api/prospects/${id}`);
   await row.getByRole("button", { name: "Archiver", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Lead archivé");
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "Archives 1", exact: true }).click();
   await expect(row.getByText("Archivé", { exact: true })).toBeVisible();
 });
 
-test("mixed directory bulk selection never submits archived leads", async ({ page, request }) => {
+test("active directory bulk selection never submits archived leads", async ({ page, request }) => {
   const [archivedId, activeId] = await seed(request);
   await request.patch(`/api/prospects/${archivedId}`, { data: { archived: true } });
   const selectedRequests: string[] = [];
@@ -64,8 +66,8 @@ test("mixed directory bulk selection never submits archived leads", async ({ pag
     if (req.method() === "PATCH" && req.url().includes("/api/prospects/") && req.postDataJSON().selected) selectedRequests.push(req.url().split("/").pop()!);
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await page.getByRole("button", { name: "Tous les leads 1", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
   await page.getByLabel("Sélectionner toutes les entreprises affichées").click();
   await expect(page.getByLabel("Sélectionner toutes les entreprises affichées")).toBeChecked();
   await expect(page.getByRole("button", { name: "Ma sélection 1", exact: true })).toBeVisible();
@@ -90,15 +92,12 @@ test("Tous les leads ignores previous search and qualification filters", async (
   await page.getByText("Affiner les entreprises affichées", { exact: false }).click();
   await page.getByLabel("Note minimale").fill("5");
   await expect(page.locator("tbody tr")).toHaveCount(0);
-  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
+  await page.getByRole("button", { name: "Tous les leads 1", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tous les leads", exact: true })).toBeVisible();
-  await expect(page.locator("tbody tr")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Tous 2", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Actifs 1", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Archivés 1", exact: true })).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Archives 1", exact: true })).toBeVisible();
   await expect(page.locator("tbody tr").filter({ hasText: "Atelier Fictif Bordeaux" })).toContainText("Refonte de site");
-  await expect(page.locator("tbody tr").filter({ hasText: "Café Fictif Lyon" })).toContainText("Archivé");
-  await expect(page.locator("tbody tr").filter({ hasText: "Café Fictif Lyon" })).toContainText("Menus & supports");
+  await expect(page.locator("tbody tr").filter({ hasText: "Café Fictif Lyon" })).toHaveCount(0);
   await expect(page.getByLabel("DANS QUELLE VILLE ?")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Préparer une recherche Apify", exact: true })).toHaveCount(0);
   const expectInlineActions = async () => {
@@ -126,13 +125,12 @@ test("archive persists, preserves dossier and excludes prospecting until restore
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   await page.goto("/");
   await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
-  await page.getByRole("button", { name: "Actifs 2", exact: true }).click();
   const row = page.locator("tbody tr").filter({ hasText: "Atelier Fictif Bordeaux" });
   await row.getByRole("button", { name: "Archiver", exact: true }).click();
   await expect(row).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Actifs 1", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Tous les leads 1", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Ma sélection 0", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Archivés 1", exact: true }).click();
+  await page.getByRole("button", { name: "Archives 1", exact: true }).click();
   await expect(row.getByText("Archivé", { exact: true })).toBeVisible();
   await expect(row.getByLabel("Sélectionner Atelier Fictif Bordeaux")).toBeDisabled();
   await expect(page.getByLabel("Sélectionner toutes les entreprises affichées")).toBeDisabled();
@@ -155,10 +153,11 @@ test("archive persists, preserves dossier and excludes prospecting until restore
   await expect(page.locator(".pipeline-prospect")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Ouvrir le menu" }).click();
-  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await page.getByRole("button", { name: "Tous les leads 1", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
-  await page.getByRole("button", { name: "Archivés 1", exact: true }).click();
+  await page.getByRole("button", { name: "Ouvrir le menu" }).click();
+  await page.getByRole("button", { name: "Archives 1", exact: true }).click();
   await row.getByRole("button", { name: "Voir la fiche" }).click();
   await expect(drawer.getByRole("button", { name: "Désarchiver", exact: true })).toBeInViewport();
   await expect.poll(async () => {
@@ -169,7 +168,9 @@ test("archive persists, preserves dossier and excludes prospecting until restore
   await drawer.getByRole("button", { name: "Désarchiver", exact: true }).click();
   await expect(drawer.getByRole("button", { name: "Archiver", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Fermer la fiche" }).click();
-  await page.getByRole("button", { name: "Actifs 2", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "Ouvrir le menu" }).click();
+  await page.getByRole("button", { name: "Tous les leads 2", exact: true }).click();
   await expect(row).toHaveCount(1);
   await row.getByRole("button", { name: "Archiver", exact: true }).scrollIntoViewIfNeeded();
   await expect(row.getByRole("button", { name: "Archiver", exact: true })).toBeInViewport();

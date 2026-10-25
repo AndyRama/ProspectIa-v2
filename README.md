@@ -70,7 +70,7 @@ Le bouton **Importer Excel** permet de charger une feuille d’entreprises, vér
 
 ## Tous les leads et archivage
 
-Le bouton **Tous les leads** ouvre la liste complète des entreprises enregistrées, indépendamment de la recherche ou du moteur affiché auparavant. Les vues Tous, Actifs et Archivés permettent de retrouver les fiches conservées.
+Le bouton **Tous les leads** ouvre les entreprises **actives** enregistrées, indépendamment de la recherche ou du moteur affiché auparavant. Le nouvel onglet **Archives** contient uniquement les entreprises archivées. Archiver retire une fiche de la liste active sans la supprimer ; désarchiver la remet dans **Tous les leads**, sans la sélectionner automatiquement.
 
 **Archiver** signifie ne plus travailler ce lead en prospection : la fiche est désélectionnée et les nouvelles actions de prospection sont bloquées. Les coordonnées, sources, statuts commerciaux, brouillons, dossiers et références d’historique ne sont pas supprimés. **Désarchiver** remet la fiche parmi les actives sans la sélectionner automatiquement ni lever une opposition de contact.
 
