@@ -36,6 +36,7 @@ export interface Prospect {
   photos: string[];
   engine: Engine;
   audit?: Audit;
+  siteCheck?: { status: "succeeded"; checkedAt: string } | { status: "failed"; checkedAt: string; error: string };
   doNotContact?: boolean;
   /** Retiré de la prospection, sans effacer le suivi ni l’opposition au contact. */
   archived?: boolean;
@@ -43,6 +44,9 @@ export interface Prospect {
   duplicateOf?: string;
 }
 export interface Audit {
+  /** URL effectivement lue, après les redirections publiques. */
+  sourceUrl?: string;
+  scope?: "homepage";
   checkedAt: string;
   https: boolean;
   responsive: boolean;

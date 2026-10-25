@@ -120,6 +120,10 @@ ChatGPT Plus ne finance ni Apify ni l’hébergement. L’historique, l’import
 
 ## Analyse des sites et fidélité du dossier
 
+**Contrôle préliminaire :** le bouton jaune permet de vérifier explicitement la page d’accueil d’un site renseigné. Sans URL, le bouton rouge indique **Aucun site renseigné** : cela n’affirme pas que l’entreprise ne possède aucun site. Le contrôle enregistre une date et des observations uniquement après lecture réelle ; les échecs restent visibles et peuvent être réessayés. **Vérifier les sites affichés** traite au maximum 25 fiches éligibles, séquentiellement, avec un bilan. Aucun contrôle ne démarre automatiquement à l’import ou à l’ouverture du dashboard. Voir [le détail et les limites](docs/SITE-PRELIMINAIRE.md).
+
+L’analyse complète est une action distincte.
+
 L’analyse est manuelle, ou déclenchée par la préparation explicite du dossier. Elle lit jusqu’à **huit pages HTML du même site**, contact, services et menus en priorité, dans une fenêtre de 35 secondes (la dernière requête peut durer 15 secondes de plus). Les pages avec paramètres, connexions et fichiers binaires sont exclues. Les pages redirigées hors du site ne sont pas conservées.
 
 Les textes, références d’images, logo trouvé, couleurs présentes dans le HTML, liens, coordonnées, sources et dates sont conservés dans le dossier. Les PDF restent des liens ; leurs contenus ne sont pas retranscrits. Les images ne sont pas téléchargées et leurs droits ne sont pas présumés acquis. Hermès doit vérifier ces points avant réutilisation.

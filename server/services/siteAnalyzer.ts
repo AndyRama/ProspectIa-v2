@@ -2,9 +2,14 @@ import * as cheerio from "cheerio";
 import { resolveMx } from "node:dns/promises";
 import { readPublic } from "./http";
 import type { Audit, Prospect, Source, SitePage } from "../types";
-export async function inspectSite(website: string) {
+export async function inspectSite(website: string, options: { signal?: AbortSignal } = {}) {
   const start = Date.now();
-  const { html, url } = await readPublic(website);
+  // Only an explicit dotted host may receive an implicit HTTPS scheme.
+  // Never repair credentials, backslashes, protocol-relative or non-HTTP URLs.
+  const raw = website.trim();
+  const normalized = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:[/?#][^\s\\]*)?$/i.test(raw)
+    ? `https://${raw}` : raw;
+  const { html, url } = await readPublic(normalized, options);
   const $ = cheerio.load(html);
   $("script,style,noscript,svg").remove();
   const text = $("body").text().replace(/\s+/g, " ").trim();
@@ -150,6 +155,9 @@ export async function analyze(p: Prospect) {
   const fields = { ...p.fields };
   const now = new Date().toISOString();
   for (const [key, contact] of Object.entries(data.contacts)) {
+    // Enrichment fills gaps; it must never replace a saved/user contact.
+    const existing = key === "email" ? p.email : key === "phone" ? p.phone : p.socials[key];
+    if (existing || fields[key]?.value) continue;
     const value = contact.value;
     if (value) {
       const field: Source = {
@@ -175,10 +183,10 @@ export async function analyze(p: Prospect) {
   return {
     ...p,
     audit: data.audit,
-    email: fields.email?.value || p.email,
-    phone: fields.phone?.value || p.phone,
-    socials: { ...p.socials, ...Object.fromEntries(Object.entries(data.contacts)
-      .filter(([key]) => !["email", "phone"].includes(key)).map(([key, value]) => [key, value.value])) },
+    email: p.email || fields.email?.value || "",
+    phone: p.phone || fields.phone?.value || "",
+    socials: Object.fromEntries([...new Set([...Object.keys(p.socials), ...Object.keys(data.contacts).filter(key => !["email", "phone"].includes(key))])]
+      .map(key => [key, p.socials[key] || fields[key]?.value || data.contacts[key]?.value || ""])),
     fields,
     webStatus: data.audit.score >= 35 ? "À examiner" : "Site analysé",
   };
