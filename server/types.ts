@@ -91,6 +91,9 @@ export interface Draft {
   createdAt: string;
 }
 export interface HermesHandoff {
+  /** Optional so historical handoffs remain readable. Manual destination only. */
+  targetProfile?: "default" | "coder";
+  kind?: "email" | "project";
   id: string;
   prospectId: string;
   prospectName: string;

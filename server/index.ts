@@ -14,7 +14,7 @@ import { generateDrafts } from "./services/generators";
 import { startApify, collectApify, acknowledgeApify, verifyApify, recoverApify, } from "./services/apify";
 import { mountAuth, validateHosting } from "./auth";
 import { mountAgent } from "./agent";
-import { buildHermesHandoff } from "./services/handoffs/hermes";
+import { buildHermesHandoff, buildEmailPrompt, emailPromptEligible } from "./services/handoffs/hermes";
 import { persistResults, resolveSearch, presentSearch, findSavedSearch } from "./searches";
 import { makeQuery, queryForSearch, queryKey } from "./searchQuery";
 import { planEnrichment, validPlaceId } from "./services/apifyPlan";
@@ -264,6 +264,28 @@ app.post("/api/prospects/:id/analyze", async (req, res) => {
     const result = { ...current, audit: updated.audit, email: updated.email, phone: updated.phone, socials: updated.socials, fields: updated.fields, webStatus: updated.webStatus };
     (await saveProspect(result));
     res.json(result);
+});
+app.post("/api/prospects/:id/email-prompt", async (req, res) => {
+  const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);
+  const { engine } = z.object({ engine: engineSchema }).strict().parse(req.body);
+  const business = await getSetting<Business>("business", defaultBusiness);
+  // Re-read after asynchronous context loading, immediately before creation.
+  // No analysis, provider, Gmail access or legacy draft generation on this route.
+  const current = await prospect(id);
+  if (!current) return res.status(404).json({ error: "Prospect introuvable." });
+  if (!emailPromptEligible(current)) return res.status(403).json({ error: "Un email réel valide est nécessaire ; les fiches démo, archivées ou opposées au contact sont exclues." });
+  const suppressed = (await db.execute({ sql: "SELECT 1 FROM suppressions WHERE email=?", args: [current.email.toLowerCase()] })).rows.length;
+  if (suppressed) return res.status(403).json({ error: "Cette adresse est opposée au contact." });
+  const handoff = buildEmailPrompt(current, business, engine);
+  // Atomic compare-and-insert: a concurrent archive, opposition, address edit or
+  // deletion must not persist work built from a stale eligibility snapshot.
+  const saved = await db.execute({
+    sql: "INSERT INTO handoffs SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM prospects WHERE id=? AND data=?) AND NOT EXISTS (SELECT 1 FROM suppressions WHERE email=?)",
+    args: [handoff.id, current.id, JSON.stringify(handoff), current.id, JSON.stringify(current), current.email.toLowerCase()],
+  });
+  if (!saved.rowsAffected) return res.status(403).json({ error: "La fiche ou son opposition a changé. Vérifiez son état avant de préparer un nouveau prompt." });
+  const { dossier, ...result } = handoff;
+  res.json(result);
 });
 app.post("/api/prospects/:id/drafts", async (req, res) => {
     const p = (await prospect(req.params.id));
