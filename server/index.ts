@@ -9,7 +9,7 @@ import { parse } from "csv-parse/sync";
 import { db, defaultBusiness, getSetting, setSetting, list, prospect, saveProspect, saveDraft, saveDrafts, seedDemo, catalogSnapshot } from "./db";
 import { secret, saveSecret } from "./secrets";
 import type { Business, Draft, Engine, Prospect, Search, HermesHandoff } from "./types";
-import { analyze, inspectSite } from "./services/siteAnalyzer";
+import { analyze, inspectSite, inspectSiteContacts } from "./services/siteAnalyzer";
 import { generateDrafts } from "./services/generators";
 import { startApify, collectApify, acknowledgeApify, verifyApify, recoverApify, } from "./services/apify";
 import { mountAuth, validateHosting } from "./auth";
@@ -282,6 +282,41 @@ app.post(["/api/prospects/:id/analyze", "/api/prospects/:id/drafts", "/api/prosp
     const p = await prospect(String(req.params.id));
     if (p?.archived) return res.status(403).json({ error: "Prospect archivé : restaurez la fiche avant de créer de nouveaux éléments." });
     next();
+});
+app.post("/api/prospects/:id/contact-check", async (req, res) => {
+    const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);
+    z.object({}).strict().parse(req.body);
+    const resolved = await prospect(id);
+    if (!resolved) return res.status(404).json({ error: "Prospect introuvable." });
+    const row = (await db.execute({ sql: "SELECT data FROM prospects WHERE id=?", args: [resolved.id] })).rows[0];
+    if (!row) return res.status(404).json({ error: "Prospect introuvable." });
+    const snapshot = String(row.data), current: Prospect = JSON.parse(snapshot);
+    if (current.demo || current.archived || current.doNotContact) return res.status(403).json({ error: "Recherche de contacts interdite : fiche démo, archivée ou opposée au contact." });
+    const previous = [(current.email || "").trim().toLowerCase(), (current.fields.email?.value || "").trim().toLowerCase()];
+    const suppressed = async (emails: string[]) => (await db.execute({ sql: `SELECT 1 FROM suppressions WHERE lower(trim(email)) IN (${emails.map(() => "?").join(",")})`, args: emails })).rows.length > 0;
+    if (await suppressed(previous)) return res.status(403).json({ error: "Adresse opposée au contact. Aucune collecte effectuée." });
+    if (!current.website.trim()) return res.status(422).json({ error: "Aucun site renseigné : aucun email public ne peut être recherché sans site. Aucune requête effectuée." });
+    const contactCheck = await inspectSiteContacts(current.website);
+    const addresses = [...new Set([...previous, ...contactCheck.emails.map(e => e.value)])];
+    if (await suppressed(addresses)) return res.status(403).json({ error: "Adresse opposée au contact. Aucun contact n’a été enregistré." });
+    const updated: Prospect = { ...current, contactCheck };
+    const candidate = contactCheck.emails[0];
+    if (candidate && !validProspectEmail(current.email || "") && !validProspectEmail(current.fields.email?.value || "")) {
+        updated.email = candidate.value;
+        updated.fields = { ...current.fields, email: candidate };
+    }
+    const saved = await db.execute({
+        sql: `UPDATE prospects SET data=? WHERE id=? AND data=? AND NOT EXISTS (SELECT 1 FROM suppressions WHERE lower(trim(email)) IN (${addresses.map(() => "?").join(",")}))`,
+        args: [JSON.stringify(updated), current.id, snapshot, ...addresses],
+    });
+    if (!saved.rowsAffected) {
+        if (await suppressed(addresses)) return res.status(403).json({ error: "Adresse opposée au contact. Aucun contact n’a été enregistré." });
+        return res.status(409).json({ error: "La fiche a changé. Rechargez-la avant de rechercher ses contacts." });
+    }
+    const result = await prospect(current.id);
+    if (!result) return res.status(404).json({ error: "Prospect introuvable." });
+    if (contactCheck.status === "failed") return res.status(502).json({ error: contactCheck.error, prospect: result });
+    res.json(result);
 });
 app.post("/api/prospects/:id/site-check", async (req, res) => {
     const id = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/).parse(req.params.id);

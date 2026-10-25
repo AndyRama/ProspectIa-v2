@@ -1,7 +1,55 @@
 import * as cheerio from "cheerio";
 import { resolveMx } from "node:dns/promises";
 import { readPublic } from "./http";
-import type { Audit, Prospect, Source, SitePage } from "../types";
+import type { Audit, Prospect, Source, SitePage, ContactCheck } from "../types";
+import { extractContactEmails } from "./contactExtractor";
+
+/** Explicit contact-only enrichment: no audit, MX lookup or paid-provider call. */
+export async function inspectSiteContacts(website: string): Promise<ContactCheck> {
+  const signal = AbortSignal.timeout(15000);
+  const result: ContactCheck = { status: "not_found", checkedAt: new Date().toISOString(), emails: [], pages: [], warnings: [] };
+  const raw = website.trim();
+  const normalized = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:[/?#][^\s\\]*)?$/i.test(raw) ? `https://${raw}` : raw;
+  const queue = [normalized], seen = new Set<string>(), emails = new Set<string>();
+  let origin = "", attempts = 0;
+  while (queue.length && attempts < 4) {
+    const target = queue.shift()!;
+    attempts++;
+    try {
+      signal.throwIfAborted();
+      const page = await readPublic(target, { signal });
+      if (origin && new URL(page.url).origin !== origin) throw Error("Off-origin redirect");
+      origin ||= new URL(page.url).origin;
+      seen.add(new URL(page.url).href.replace(/\/$/, ""));
+      result.pages.push(page.url);
+      const collectedAt = new Date().toISOString();
+      for (const email of extractContactEmails(page.html)) {
+        if (emails.has(email)) continue;
+        emails.add(email);
+        result.emails.push({ value: email, source: "Site web", url: page.url, collectedAt,
+          qualification: "Coordonnée publique · boîte non vérifiée, à confirmer" });
+      }
+      const $ = cheerio.load(page.html);
+      $("a[href]").each((_, el) => {
+        try {
+          const u = new URL($(el).attr("href")!, page.url); u.hash = "";
+          const key = u.href.replace(/\/$/, "");
+          if (u.origin !== origin || u.username || u.password || u.search || seen.has(key) ||
+              /\.[a-z0-9]{1,8}$/i.test(u.pathname) && !/\.(html?|php|aspx?)$/i.test(u.pathname) ||
+              !/contact|about|propos|legal|légal|mentions|impressum/i.test(u.pathname + " " + $(el).text())) return;
+          seen.add(key); queue.push(u.href);
+        } catch { /* non-web link */ }
+      });
+    } catch {
+      result.warnings.push("Une page n’a pas pu être lue ; collecte incomplète.");
+      if (signal.aborted || attempts === 1) break;
+    }
+  }
+  if (queue.length) result.warnings.push("Collecte limitée à 4 pages et 15 secondes ; des pages peuvent manquer.");
+  result.status = result.emails.length ? "found" : result.warnings.length && (signal.aborted || result.pages.length < attempts) ? "failed" : "not_found";
+  if (result.status === "failed") result.error = "Les contacts du site n’ont pas pu être vérifiés. Réessayez plus tard ou vérifiez son adresse.";
+  return result;
+}
 export async function inspectSite(website: string, options: { signal?: AbortSignal } = {}) {
   const start = Date.now();
   // Only an explicit dotted host may receive an implicit HTTPS scheme.

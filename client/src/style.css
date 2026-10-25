@@ -1,5 +1,11 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Inter:wght@400;450;500;550;600;650;700;750&display=swap");
 @import "tailwindcss";
+.contact-check-action { display: grid; gap: 6px; margin: 8px 0; max-width: 280px; white-space: normal; }
+.contact-check-action small { line-height: 1.5; overflow-wrap: anywhere; }
+.contact-check-action .button { white-space: normal; text-align: left; height: auto; }
+.contact-check-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #dde5e1; }
+.contact-check-batch p { margin: 0; white-space: normal; overflow-wrap: anywhere; }
+.prospect-drawer .contact-check-action { max-width: 100%; }
 .site-check-action { display: grid; gap: 6px; margin: 8px 0; max-width: 280px; white-space: normal; }
 .site-check-action small { line-height: 1.5; overflow-wrap: anywhere; }
 .button.site-check { white-space: normal; text-align: left; height: auto; }

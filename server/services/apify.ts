@@ -5,6 +5,7 @@ import { db, getSetting, setSetting, claimSetting } from "../db";
 import { billedPlaceIds, validPlaceId } from "./apifyPlan";
 import { discoveryActor, discoveryActorId, discoveryApi } from './apifyDiscovery';
 import { canonicalMapsUrl } from './identity';
+import { publicContactEmail } from './contactExtractor';
 function expectedActor(pending: any) {
   if (pending.mode === 'discovery') {
     if (pending.actorSlug !== discoveryActor || pending.actorId !== discoveryActorId) throw Error('Actor Apify non autorisé.');
@@ -93,7 +94,9 @@ export async function startApify(
     if (props.maxImages) input.maxImages = 0;
     if (props.maximumLeadsEnrichmentRecords)
       input.maximumLeadsEnrichmentRecords = 0;
-    if (props.scrapeContacts) input.scrapeContacts = true;
+    // Official Compass schema labels this a paid website-contact add-on.
+    // Public-site email extraction is separate; never enable a second paid pass.
+    if (props.scrapeContacts) input.scrapeContacts = false;
     if (props.scrapeSocialMediaProfiles) input.scrapeSocialMediaProfiles = { instagrams: false, facebooks: false, youtubes: false, tiktoks: false, twitters: false };
     if (props.enableCompetitorAnalysis) input.enableCompetitorAnalysis = false;
     const pending = {
@@ -207,17 +210,35 @@ export async function collectApify(token: string) {
     token,
   ) : [];
   if (!Array.isArray(rows) || rows.some((r: any) => !r || typeof r !== 'object' || r.error || r.errorMessage || typeof (pending.mode === 'discovery' ? r.name : r.title) !== 'string' || !(pending.mode === 'discovery' ? r.name : r.title).trim())) throw Error('Dataset Apify invalide ou erreur fournisseur ; verrou conservé.');
-  if (pending.mode === 'discovery' && rows.some((r: any) =>
-    (r.place_id != null && r.place_id !== '' && (typeof r.place_id !== 'string' || !validPlaceId(r.place_id))) ||
-    (r.cid != null && r.cid !== '' && (typeof r.cid !== 'string' || !/^\d+$/.test(r.cid))) ||
-    (r.feature_id != null && r.feature_id !== '' && (typeof r.feature_id !== 'string' || !/^0x[0-9a-f]+:0x[0-9a-f]+$/i.test(r.feature_id)))
-  )) throw Error('Identité Google Apify invalide ; verrou conservé.');
+  if (rows.some((r: any) => {
+    const placeId = pending.mode === 'discovery' ? r.place_id : r.placeId;
+    const featureIds = pending.mode === 'discovery' ? [r.feature_id] : [r.fid, r.feature_id];
+    return (placeId != null && placeId !== '' && (typeof placeId !== 'string' || !validPlaceId(placeId))) ||
+      (r.cid != null && r.cid !== '' && (typeof r.cid !== 'string' || !/^\d+$/.test(r.cid))) ||
+      featureIds.some(id => id != null && id !== '' && (typeof id !== 'string' || !/^0x[0-9a-f]+:0x[0-9a-f]+$/i.test(id)));
+  })) throw Error('Identité Google Apify invalide ; verrou conservé.');
   const excludedIds = new Set(pending.exclusionSnapshot?.ids || []), excludedUrls = new Set(pending.exclusionSnapshot?.urls || []);
   const seen = new Set<string>();
-  const normalized = rows.map((r: any) => pending.mode === 'discovery' ? {
-    ...r, title:r.name, placeId:r.place_id, categoryName:r.category, totalScore:r.rating, reviewsCount:r.review_count,
-    location:{lat:r.latitude,lng:r.longitude},openingHours:r.opening_hours,imageUrl:r.image_url,imageUrls:r.photos,
-  } : r).filter((r: any) => {
+  // Public default-build output contracts: discovery uses snake_case;
+  // Compass uses phoneUnformatted/fid. Neither documents websiteUrl as an alias.
+  const text = (...values: unknown[]): string => values.find((v): v is string => typeof v === 'string' && !!v.trim()) as string || '';
+  const social = (value: unknown): string => Array.isArray(value) ? text(...value) : '';
+  const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const normalized = rows.map((r: any) => {
+    const row = pending.mode === 'discovery' ? {
+      ...r, title:r.name, placeId:r.place_id, categoryName:r.category, totalScore:r.rating, reviewsCount:r.review_count,
+      location:{lat:r.latitude,lng:r.longitude},openingHours:r.opening_hours,imageUrl:r.image_url,imageUrls:r.photos,
+      phoneInternational: text(r.phone_international),
+    } : { ...r, feature_id: text(r.fid, r.feature_id), phoneInternational: text(r.phoneUnformatted) };
+    return {
+      ...row, phone: pending.mode === 'discovery' ? text(row.phoneInternational, row.phone) : text(row.phone, row.phoneInternational),
+      address: text(row.address), city: text(row.city), website: text(row.website),
+      categoryName: text(row.categoryName, ...(Array.isArray(row.categories) ? row.categories : [])),
+      location: { lat: numeric(row.location?.lat), lng: numeric(row.location?.lng) },
+      totalScore: numeric(row.totalScore), reviewsCount: numeric(row.reviewsCount),
+      openingHours: Array.isArray(row.openingHours) && row.openingHours.length ? row.openingHours : null,
+    };
+  }).filter((r: any) => {
     if (pending.mode !== 'discovery') return true;
     if ([r.placeId,r.cid,r.feature_id].some(id => excludedIds.has(id)) || excludedUrls.has(r.url)) return false;
     const identity = r.placeId || r.cid || r.feature_id || canonicalMapsUrl(r.url);
@@ -229,18 +250,35 @@ export async function collectApify(token: string) {
     .filter((r: any) => r.title && (!pending.placeIds || pending.placeIds.includes(r.placeId)))
     .map((r: any): Prospect => {
       const fields: Record<string, Source> = {};
+      // Only normalize addresses actually supplied by the provider. This does not
+      // imply that the current discovery Actor supplies or extracts emails.
+      const emails = [...new Set([...(Array.isArray(r.emails) ? r.emails : []), r.email]
+        .map(publicContactEmail).filter((email): email is string => !!email))];
       for (const [key, value] of Object.entries({
         name: r.title,
+        city: r.city,
         address: r.address,
+        street: text(r.street),
+        state: text(r.state),
+        postalCode: text(r.postal_code, r.postalCode),
+        countryCode: text(r.country_code, r.countryCode),
+        description: text(r.description),
+        categories: Array.isArray(r.categories) && r.categories.length ? JSON.stringify(r.categories) : undefined,
+        scrapedAt: text(r.scraped_at),
         phone: r.phone,
+        phoneInternational: r.phoneInternational,
         website: r.website,
-        email: r.emails?.[0],
+        email: emails[0],
         rating: r.totalScore,
         reviews: r.reviewsCount,
-        instagram: r.instagrams?.[0],
-        facebook: r.facebooks?.[0],
-        linkedin: r.linkedIns?.[0],
-        whatsapp: r.whatsapps?.[0] || r.whatsapp,
+        instagram: social(r.instagrams),
+        facebook: social(r.facebooks),
+        linkedin: social(r.linkedIns),
+        youtube: social(r.youtubes),
+        tiktok: social(r.tiktoks),
+        twitter: social(r.twitters),
+        pinterest: social(r.pinterests),
+        whatsapp: social(r.whatsapps) || text(r.whatsapp),
         category: r.categoryName,
         latitude: r.location?.lat,
         longitude: r.location?.lng,
@@ -265,7 +303,7 @@ export async function collectApify(token: string) {
             qualification: "Rapporté par Apify · à confirmer",
           };
       }
-      for (const [index, email] of (Array.isArray(r.emails) ? r.emails : []).entries()) {
+      for (const [index, email] of emails.entries()) {
         if (index && typeof email === "string") fields[`email_${index + 1}`] = {
           value: email, source: "Apify · Google Maps", url: r.url,
           collectedAt: new Date().toISOString(), qualification: "Rapporté par Apify · à confirmer",
@@ -279,13 +317,13 @@ export async function collectApify(token: string) {
       return {
         id: `apify-${identity}`,
         name: r.title,
-        category: r.categoryName || r.categories?.[0] || "Commerce",
-        city: r.city || pending.city,
+        category: r.categoryName,
+        city: r.city,
         address: r.address || "",
         lat: r.location?.lat ?? null,
         lng: r.location?.lng ?? null,
         website: r.website || "",
-        email: r.emails?.[0] || "",
+        email: emails[0] || "",
         phone: r.phone || "",
         rating: r.totalScore ?? null,
         reviews: r.reviewsCount ?? null,
@@ -295,11 +333,11 @@ export async function collectApify(token: string) {
         webStatus: r.website ? "Non vérifié" : "Pas de site renseigné",
         fields,
         socials: Object.fromEntries(
-          ["instagram", "facebook", "linkedin", "whatsapp"]
+          ["instagram", "facebook", "linkedin", "youtube", "tiktok", "twitter", "pinterest", "whatsapp"]
             .filter((k) => fields[k])
             .map((k) => [k, fields[k].value]),
         ),
-        hours: JSON.stringify(r.openingHours || []),
+        hours: r.openingHours ? JSON.stringify(r.openingHours) : "",
         photos: [r.imageUrl, ...(r.imageUrls || [])]
           .filter(Boolean)
           .slice(0, 10),

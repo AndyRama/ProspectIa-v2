@@ -46,6 +46,10 @@ test("bouton principal → aperçu → confirmation → start → poll → liste
   await page.getByLabel("Budget d’arrêt Apify (USD)").fill("0.5");
   await prepare.click();
   await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("nom, activité, adresse, ville, téléphone, site et identifiant Google");
+  await expect(page.getByRole("dialog")).toContainText("Google Maps ne fournit pas d’emails");
+  await expect(page.getByRole("dialog")).toContainText("démarre automatiquement");
+  await expect(page.getByRole("dialog")).toContainText("Email non garanti");
   expect(f.plans).toHaveLength(1); expect(f.starts).toHaveLength(0); expect(polls).toBe(0);
   await page.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true }).click();
   await expect(prepare).toBeDisabled();

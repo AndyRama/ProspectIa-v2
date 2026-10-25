@@ -5,6 +5,15 @@ export type Source = {
   collectedAt: string;
   qualification?: string;
 };
+export interface ContactCheck {
+  status: "found" | "not_found" | "failed";
+  checkedAt: string;
+  /** Unique public addresses; neither mailbox ownership nor deliverability verified. */
+  emails: Source[];
+  pages: string[];
+  warnings: string[];
+  error?: string;
+}
 export type Status =
   | "À contacter"
   | "Contacté"
@@ -37,6 +46,7 @@ export interface Prospect {
   engine: Engine;
   audit?: Audit;
   siteCheck?: { status: "succeeded"; checkedAt: string } | { status: "failed"; checkedAt: string; error: string };
+  contactCheck?: ContactCheck;
   doNotContact?: boolean;
   /** Retiré de la prospection, sans effacer le suivi ni l’opposition au contact. */
   archived?: boolean;

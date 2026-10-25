@@ -70,6 +70,18 @@ type Settings = {
   pending: any;
   onboarded: boolean;
 };
+type AutoContactJob = { searchId: string; ids: string[]; done: string[]; startedAt: string; status: "pending" | "paused" | "completed" };
+const AUTO_CONTACT_KEY = "prospectai:approved-contact-lots:v1";
+function readAutoContactJobs(): Record<string, AutoContactJob> {
+  try {
+    const value = JSON.parse(localStorage.getItem(AUTO_CONTACT_KEY) || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([id, item]) => {
+      const job = item as AutoContactJob;
+      return job && job.searchId === id && Array.isArray(job.ids) && job.ids.length <= 2000 && job.ids.every(x => typeof x === "string") && Array.isArray(job.done) && job.done.every(x => typeof x === "string") && Number.isFinite(Date.parse(job.startedAt)) && ["pending", "paused", "completed"].includes(job.status);
+    })) as Record<string, AutoContactJob>;
+  } catch { return {}; }
+}
 type State = { prospects: Prospect[]; searches: SearchRecord[]; drafts: Draft[]; handoffs: HandoffSummary[]; settings: Settings };
 const engines = {
   website: {
@@ -175,6 +187,20 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [runRecovery, setRunRecovery] = useState("");
 
   const busyRef = useRef(false);
+  const contactCancelRef = useRef(false);
+  const activeAutoContactJobRef = useRef<string | null>(null);
+  const [autoContactJobs, setAutoContactJobs] = useState(readAutoContactJobs);
+  const autoContactJobsRef = useRef(autoContactJobs);
+  const saveAutoContactJob = (job: AutoContactJob) => {
+    const jobs = { ...autoContactJobsRef.current, [job.searchId]: job };
+    // Persist before starting the next request. No email or credential is stored here.
+    localStorage.setItem(AUTO_CONTACT_KEY, JSON.stringify(jobs));
+    autoContactJobsRef.current = jobs;
+    setAutoContactJobs(jobs);
+  };
+  const [autoContactNote, setAutoContactNote] = useState("");
+  const [contactStopping, setContactStopping] = useState(false);
+  const [contactBatch, setContactBatch] = useState<{ found: number; not_found: number; failed: number; total: number; stopped?: boolean; lastError?: string } | null>(null);
   const [siteBatch, setSiteBatch] = useState<{ success: number; failed: number; total: number; lastError?: string } | null>(null);
   const [discovery, setDiscovery] = useState<{ plan: { planId: string; actor: string; city: string; query: string; max: number; budget: number; excludedCount: number; unidentifiedCount: number; warnings: string[] }; input: { city: string; activity: string; keyword: string; engine: Engine; max: number; budget: number }; requestId: string } | null>(null);
   const discoveryInput = { city, activity, keyword, engine, max: Math.min(25, state?.settings.limits.max ?? 25), budget };
@@ -268,6 +294,98 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     {busy === `archive:${p.id}` ? <LoaderCircle size={14} className="spin" /> : p.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
     {p.archived ? "Désarchiver" : "Archiver"}
   </button>;
+  const contactEligible = (p: Prospect) => !p.archived && !p.demo && !p.doNotContact && !!safeUrl(p.website);
+  const checkContact = async (p: Prospect): Promise<"found" | "not_found"> => {
+    if (!contactEligible(p)) throw new Error("Recherche de contact non autorisée pour cette fiche.");
+    let result: Prospect | undefined, requestError = "";
+    try { result = await api<Prospect>(`/prospects/${p.id}/contact-check`, "POST", {}); }
+    catch (error) { requestError = (error as Error).message; }
+    const updated = (await refresh()).prospects.find(item => item.id === p.id);
+    if (requestError) throw new Error(updated?.contactCheck?.status === "failed" ? updated.contactCheck.error || requestError : requestError);
+    const check = result?.contactCheck, saved = updated?.contactCheck;
+    if (!check?.checkedAt || check.checkedAt === p.contactCheck?.checkedAt || saved?.checkedAt !== check.checkedAt || saved?.status !== check.status || updated?.website !== p.website || !updated || !contactEligible(updated) || (check.status === "found" && (!emailPromptEligible(updated) || updated.email !== result?.email))) {
+      throw new Error("La récupération de l’email n’a pas été confirmée dans la base. Réessayez.");
+    }
+    if (saved.status === "failed") throw new Error(saved.error || "Lecture du site impossible.");
+    return saved.status;
+  };
+  const contactCheckAction = (p: Prospect) => {
+    const checking = busy === `contact-check:${p.id}`, check = p.contactCheck;
+    const reason = p.archived ? "Lead archivé : désarchivez-le avant toute recherche." : p.demo ? "Fiche de démonstration : aucune collecte réelle." : p.doNotContact ? "Opposition au contact : aucune recherche autorisée." : !p.website.trim() ? "Aucun site renseigné · ajout manuel possible" : !safeUrl(p.website) ? "URL du site invalide · ajout manuel possible" : "";
+    return <div className="contact-check-action">
+      <button className="button ghost small" disabled={!!busy || !contactEligible(p)} aria-busy={checking} onClick={() => task(`contact-check:${p.id}`, async () => {
+        const status = await checkContact(p);
+        setNotice({ text: status === "found" ? "Email public trouvé et enregistré. Aucun message envoyé." : "Aucun email public trouvé sur les pages consultées. Un ajout manuel reste possible." });
+      })}>{checking ? <LoaderCircle size={14} className="spin" /> : <Mail size={14} />}{checking ? "Recherche de l’email en cours…" : "Rechercher l’email sur le site"}</button>
+      {reason && <small>{reason}</small>}
+      {check && <small className={check.status === "failed" ? "site-check-error" : ""}>{check.status === "found" ? "Email public trouvé" : check.status === "not_found" ? "Aucun email public trouvé sur les pages consultées" : `Recherche impossible : ${check.error || "lecture du site impossible"}`} · {date(check.checkedAt)}</small>}
+    </div>;
+  };
+  const stopContactBatch = () => {
+    contactCancelRef.current = true;
+    setContactStopping(true);
+    const job = activeAutoContactJobRef.current && autoContactJobsRef.current[activeAutoContactJobRef.current];
+    if (job) {
+      // A reload during the in-flight request must already see the explicit stop.
+      try { saveAutoContactJob({ ...job, status: "paused" }); }
+      catch (error) { setNotice({ text: `Arrêt non enregistré : checkpoint local indisponible. ${(error as Error).message}`, error: true }); }
+    }
+  };
+  // Shared queue body: callers own the application lock (including the poll task).
+  const runContactQueue = async (queue: Prospect[], job?: AutoContactJob, noSite = 0) => {
+    contactCancelRef.current = false;
+    setContactStopping(false);
+    setBusy("contact-check-batch");
+    activeAutoContactJobRef.current = job?.searchId || null;
+    let checkpoint = job ? { ...job, done: [...job.done] } : undefined;
+    const summary = { found: 0, not_found: 0, failed: 0, total: queue.length, stopped: false, lastError: "" };
+    setContactBatch({ ...summary });
+    try {
+      for (const p of queue) {
+        if (contactCancelRef.current) break;
+        if (checkpoint) {
+          checkpoint = { ...checkpoint, done: [...checkpoint.done, p.id] };
+          saveAutoContactJob(checkpoint);
+        }
+        try { summary[await checkContact(p)]++; }
+        catch (error) { summary.failed++; summary.lastError = `${p.name} : ${(error as Error).message}`; }
+        setContactBatch({ ...summary });
+      }
+      summary.stopped = contactCancelRef.current && summary.found + summary.not_found + summary.failed < summary.total;
+      if (checkpoint) saveAutoContactJob({ ...checkpoint, status: contactCancelRef.current ? "paused" : "completed" });
+    } catch (error) {
+      summary.stopped = true;
+      summary.lastError = `Checkpoint local indisponible : ${(error as Error).message}`;
+      if (checkpoint) {
+        const jobs = { ...autoContactJobsRef.current, [checkpoint.searchId]: { ...checkpoint, status: "paused" as const } };
+        autoContactJobsRef.current = jobs; setAutoContactJobs(jobs);
+      }
+    } finally {
+      setContactBatch({ ...summary });
+      activeAutoContactJobRef.current = null;
+      setContactStopping(false);
+    }
+    const unprocessed = summary.total - summary.found - summary.not_found - summary.failed;
+    const report = `${summary.stopped ? "Lot arrêté. " : ""}${summary.found} emails récupérés · ${summary.not_found + summary.failed + unprocessed} indisponibles · ${noSite} sans site. ${summary.failed} échec(s) · ${unprocessed} non traité(s). ${summary.lastError}`;
+    if (job) setAutoContactNote(`Collecte enregistrée. ${report} Aucun nouvel appel Apify ni envoi.`);
+    setNotice({ text: report, error: summary.failed > 0 || !!summary.lastError });
+  };
+  const enrichNewPoll = async (r: any, saved: State) => {
+    if (r.pending || r.cached !== false || r.runStatus !== "SUCCEEDED" || r.search?.provider !== "Apify" || autoContactJobsRef.current[r.search.id]) return;
+    const search = saved.searches.find(s => s.id === r.search.id && s.provider === "Apify");
+    if (!search) {
+      setAutoContactNote("Collecte reçue, mais enregistrement non confirmé : aucun site consulté. Les résultats ne sont pas supprimés.");
+      return;
+    }
+    const ids = new Set<string>(search.ids);
+    const lot = saved.prospects.filter(p => ids.has(p.id) && !p.duplicateOf && !p.archived && !p.demo && !p.doNotContact);
+    const queue = lot.filter(p => contactEligible(p) && !emailPromptEligible(p));
+    const job: AutoContactJob = { searchId: search.id, ids: [...ids], done: [], startedAt: new Date().toISOString(), status: "pending" };
+    setAutoContactNote("Collecte enregistrée, récupération contacts… sans nouvel appel Apify ni paiement.");
+    try { saveAutoContactJob(job); }
+    catch { setAutoContactNote("Collecte enregistrée, récupération interrompue : checkpoint local indisponible. Aucune fiche supprimée ; rattrapage possible sur toute la base sans relancer Apify."); return; }
+    await runContactQueue(queue, job, lot.filter(p => !p.website.trim()).length);
+  };
   const checkSite = async (p: Prospect) => {
     if (p.archived || p.demo || !p.website.trim()) return;
     let result: Prospect | undefined, requestError = "";
@@ -425,6 +543,23 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     }
     setNotice({ text: `${summary.success} réussite(s) · ${summary.failed} échec(s). ${summary.lastError}`, error: summary.failed > 0 });
   });
+  const contactCandidates = rows.filter(p => contactEligible(p) && !emailPromptEligible(p)).slice(0, 25);
+  const contactCatalogue = [...new Map(canonical.map(p => [p.id, p])).values()];
+  const allContactCandidates = contactCatalogue.filter(p => contactEligible(p) && !emailPromptEligible(p));
+  const contactIgnored = (items: Prospect[]) => {
+    const active = items.filter(p => !p.archived && !p.demo);
+    return `${active.filter(p => !p.website.trim()).length} sans site · ${active.filter(p => !!p.website.trim() && !safeUrl(p.website)).length} URL invalide(s) · ${active.filter(p => p.doNotContact).length} opposé(s) : non traités (motifs éventuellement cumulés).`;
+  };
+  const checkContacts = (queue: Prospect[]) => task("contact-check-batch", () => runContactQueue(queue));
+  const checkDisplayedContacts = () => checkContacts([...contactCandidates]);
+  const checkAllContacts = () => {
+    if (busyRef.current || !allContactCandidates.length) return;
+    // Freeze the canonical queue before confirmation, independently of displayed filters.
+    const queue = allContactCandidates.slice(0, 2000);
+    const capped = allContactCandidates.length > queue.length ? ` Limite de 2000 sites par lot : ${allContactCandidates.length - queue.length} candidat(s) ne seront pas traités dans ce lot.` : "";
+    if (!window.confirm(`Récupérer les emails de toute la base : ${queue.length} site(s), y compris hors recherche et filtres actifs ?${capped}\n${contactIgnored(contactCatalogue)}\nUn à un, jusqu’à 4 pages et 15 secondes par site. Aucun nouvel appel Apify, aucun paiement Apify, aucune suppression ni envoi. Chaque résultat est enregistré et relu dans la base. Arrêt possible après la requête courante. Aucun email garanti.`)) return;
+    return checkContacts(queue);
+  };
   const archivedCount = canonical.filter((p) => p.archived).length;
   const currentQuery = makeQuery({ city, activity, keyword, paid: false, engine });
   const savedSearch = state.searches.find((s) => {
@@ -776,7 +911,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                                 r.runStatus +
                                 ". Les résultats disponibles sont conservés.",
                             });
-                          await refresh();
+                          const saved = await refresh();
+                          await enrichNewPoll(r, saved);
                         })
                       }
                     >
@@ -970,6 +1106,21 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </span>
               </div>
               <section className="card table-card">
+                {page !== "archives" && <div className="contact-check-batch" aria-live="polite">
+                  <div className="button-group">
+                    <button className="button primary small" disabled={!!busy || !allContactCandidates.length} onClick={checkAllContacts}>Récupérer les emails de toute la base</button>
+                    <button className="button ghost small" disabled={!!busy || !contactCandidates.length} onClick={checkDisplayedContacts}>Récupérer les emails des sites affichés</button>
+                    {busy === "contact-check-batch" && <button className="button ghost small" disabled={contactStopping} onClick={stopContactBatch}>{contactStopping ? "Arrêt demandé…" : "Arrêter après le site en cours"}</button>}
+                  </div>
+                  <p>L’Actor Google Maps ne fournit pas d’emails. Cette collecte publique sur les sites est distincte, sans nouvel appel Apify ni paiement Apify, sans suppression ni envoi de message.</p>
+                  <p>Toute la base : {allContactCandidates.length} site(s) éligible(s), indépendamment de la recherche et des filtres · 2000 maximum par lot.{allContactCandidates.length > 2000 && ` Attention : ${allContactCandidates.length - 2000} candidat(s) au-delà de la limite ne seront pas traités dans ce lot.`}</p>
+                  <p>Base active hors démos : {contactIgnored(contactCatalogue)} Affichés : {contactIgnored(rows)}</p>
+                  <p>Emails manquants ou invalides uniquement · choix affichés : 25 sites maximum · traitement un à un, accueil et pages de contact, jusqu’à 4 pages et 15 secondes par site. Aucun résultat garanti.</p>
+                  {autoContactNote && <p>{autoContactNote} Aucun site n’est consulté automatiquement au rechargement ou à la réouverture de l’historique. Si la page est fermée pendant une requête, les résultats déjà enregistrés restent conservés ; rattrapage possible en un clic sur toute la base.</p>}
+                  {Object.values(autoContactJobs).some(job => job.status === "paused") && <p>Un lot automatique a été arrêté : aucune reprise automatique après rechargement. Pour retenter les emails encore manquants, utilisez l’action sur la base existante, sans relancer Apify.</p>}
+                  <p>Chaque résultat est enregistré puis relu dans la base. Un nouveau clic exclut les emails devenus valides ; les introuvables et échecs peuvent être retentés, ce n’est pas une reprise exacte du lot précédent.</p>
+                  {contactBatch && <p>{contactBatch.found} trouvé(s) · {contactBatch.not_found} introuvable(s) · {contactBatch.failed} échec(s) · {contactBatch.found + contactBatch.not_found + contactBatch.failed}/{contactBatch.total} traités{busy === "contact-check-batch" ? contactStopping ? " · Arrêt après la requête courante…" : " · En cours…" : contactBatch.stopped ? " · Arrêté" : " · Terminé"}{contactBatch.lastError && <span className="site-check-error"> · {contactBatch.lastError}</span>}</p>}
+                </div>}
                 {page !== "archives" && <div className="site-check-batch" aria-live="polite">
                   <button className="button ghost small" disabled={!!busy || !siteCandidates.length} onClick={checkDisplayedSites}>Vérifier les sites affichés</button>
                   <p>Contrôle préliminaire · page d’accueil uniquement · 25 sites maximum, un à un · sans Apify.</p>
@@ -1045,7 +1196,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                         </th>
                         <th>ENTREPRISE</th>
                         <th>PRÉSENCE WEB</th>
-                        <th>IDENTIFIANT</th>
+                        <th>AVIS</th>
                         <th>
                           {page === "selection" || directory ? "STATUT" : "QUALIFICATION"}
                         </th>
@@ -1083,6 +1234,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                                 </small>
                               </span>
                             </button>
+                            <div className="source-note lead-essential-fields" aria-label={`Coordonnées de ${p.name}`}>
+                              <div>Téléphone : {p.phone || "Non renseigné"}</div>
+                              <div>Site : {p.website ? <Link href={p.website}>{p.website}</Link> : "Non renseigné"}</div>
+                              <div>Adresse : {p.address || "Non renseignée"} · Ville : {p.city || "Non renseignée"}</div>
+                              <div>Email : {p.email || "Non renseigné"}</div>
+                              <div>ID : {p.id || "Non renseigné"} · Identifiant Google : {p.fields.placeId?.value || p.fields.cid?.value || "Non renseigné"}</div>
+                              <div>Source : {[...new Set(Object.values(p.fields).map(field => field.source).filter(Boolean))].join(" · ") || "Non communiquée"}</div>
+                            </div>
                           </td>
                           <td>
                             <span
@@ -1145,6 +1304,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               {archiveButton(p)}
                               {!p.archived && emailAction(p)}
                             </div>
+                            {contactCheckAction(p)}
                           </td>
                         </tr>
                       ))}
@@ -1469,6 +1629,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   <span className="demo-tag">Démonstration fictive</span>
                 )}
               </div>
+              {contactCheckAction(opened)}
               {!opened.demo && !opened.archived && !opened.doNotContact && <ProspectEmailEditor key={opened.id} prospect={opened} busy={!!busy} onSave={(email) => task("save-email", async () => {
                 const id = opened.id;
                 await api(`/prospects/${id}/email`, "PATCH", { email });
@@ -1488,6 +1649,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   ).length + Object.keys(opened.socials).length}{" "}
                   coordonnées et liens
                 </p>
+                <div className="data-fields" aria-label="Coordonnées et provenance">
+                  {([['name', 'Nom'], ['category', 'Activité'], ['city', 'Ville'], ['address', 'Adresse'], ['phone', 'Téléphone'], ['website', 'Site'], ['email', 'Email'], ['id', 'Identifiant interne']] as const).map(([key, label]) => {
+                    const value = opened[key], source = opened.fields[key];
+                    return <div key={key}><span>{label}</span><strong>{value || "Non renseigné"}</strong><small>Source : {value ? source?.source || "non communiquée" : "non disponible"} · Date : {value && source?.collectedAt ? date(source.collectedAt) : "non communiquée"}</small></div>;
+                  })}
+                </div>
                 <div className="contact-grid">
                   {[
                     ["email", "Email"],
@@ -1778,6 +1945,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         <p><strong>{discovery.plan.city} · {typeof discovery.plan.query === "string" ? discovery.plan.query : discovery.input.keyword || activityLabel(discovery.input.activity)}</strong></p>
         <p>Maximum demandé : {discovery.plan.max} entreprises (25 au maximum). Budget d’arrêt demandé : {discovery.plan.budget.toFixed(2)} USD.</p>
         <p>Fournisseur : Apify · Actor <code>benthepythondev/google-maps-business-scraper</code>.</p>
+        <div className="banner"><AlertCircle size={20} /><span><strong>Google Maps ne fournit pas d’emails.</strong> Après réception et enregistrement du nouveau lot, la récupération des emails démarre automatiquement depuis les sites publics éligibles, sans nouveau run ni paiement Apify. Email non garanti ; sans URL de site exploitable, cette récupération est impossible. Aucun message Gmail n’est envoyé. Vous pouvez arrêter après le site en cours.</span></div>
+        <p>Champs recherchés par Maps selon disponibilité : nom, activité, adresse, ville, téléphone, site et identifiant Google. Les emails sont recherchés automatiquement ensuite sur les sites publics, pas fournis directement par Maps. Les valeurs absentes sont signalées dans la fiche, avec source et date lorsqu’elles sont disponibles. Aucun contact complet ni nombre de nouveaux prospects n’est garanti.</p>
         <p>{discovery.plan.excludedCount} identifiants ou URL connus exclus avant facturation. {discovery.plan.unidentifiedCount} fiches sans identité Google exploitable : tous les doublons physiques ne peuvent pas être garantis exclus.</p>
         <p>La mémoire fournisseur « only-new » et les exclusions sont transmises avant facturation des résultats. Les 25 résultats ne sont pas garantis. Des frais de lancement sont possibles même avec 0 résultat.</p>
         <p>Le budget est un seuil d’arrêt transmis à Apify, pas un plafond absolu de facture. Cet aperçu est local : aucune collecte n’est lancée.</p>
@@ -1789,6 +1958,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         </div>
       </Modal>}
       {enrichment && <Modal title="Apify · vérifier avant de payer" onClose={() => setEnrichment(null)}>
+        <p>Champs recherchés par Maps selon disponibilité : nom, adresse, ville, téléphone, site et identifiant Google. Les valeurs absentes restent signalées ; aucun contact n’est inventé.</p>
+        <div className="banner"><AlertCircle size={20} /><span>Google Maps ne fournit pas d’emails. Après réception et enregistrement du nouveau lot, les emails sont recherchés automatiquement sur les sites publics éligibles, sans nouveau paiement Apify. Email non garanti ; sans URL exploitable, récupération impossible. Aucun envoi Gmail. Arrêt possible après le site en cours.</span></div>
         <p>{enrichment.plan.message}</p>
         <p>{enrichment.plan.excluded} déjà collecté(s) ou réservé(s) exclu(s) · {enrichment.plan.missing} sans identifiant exploitable · {enrichment.plan.remaining} pour un lot ultérieur.</p>
         <p className="source-note">Les recherches Google Maps par mot-clé sont bloquées. Ce mode ne traite que des Place IDs fournis dans vos candidats importés, vérifiés avant l’appel. Les détails et contacts sont facturés selon Apify.</p>
@@ -2363,7 +2534,7 @@ function SettingsPage({
           <summary className="danger">Supprimer les données locales</summary>
           <p>
             Cette action efface prospects, recherches, brouillons, livrables et
-            paramètres. Tapez SUPPRIMER pour confirmer.
+            paramètres. Cette remise à zéro supprime aussi les exclusions des entreprises déjà collectées : une prochaine collecte peut vous faire repayer des doublons. Pour récupérer les emails manquants, utilisez plutôt l’action sur toute la base, sans relancer Apify. Tapez SUPPRIMER pour confirmer.
           </p>
           <input
             value={deleteText}
