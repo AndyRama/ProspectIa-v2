@@ -1,5 +1,22 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Inter:wght@400;450;500;550;600;650;700;750&display=swap");
 @import "tailwindcss";
+.contact-check-action { display: grid; gap: 6px; margin: 8px 0; max-width: 280px; white-space: normal; }
+.contact-check-action small { line-height: 1.5; overflow-wrap: anywhere; }
+.contact-check-action .button { white-space: normal; text-align: left; height: auto; }
+.contact-check-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #dde5e1; }
+.contact-check-batch p { margin: 0; white-space: normal; overflow-wrap: anywhere; }
+.prospect-drawer .contact-check-action { max-width: 100%; }
+.site-check-action { display: grid; gap: 6px; margin: 8px 0; max-width: 280px; white-space: normal; }
+.site-check-action small { line-height: 1.5; overflow-wrap: anywhere; }
+.button.site-check { white-space: normal; text-align: left; height: auto; }
+.button.site-check.pending { background: #fef3c7; color: #78350f; border: 1px solid #d6ad44; }
+.button.site-check.missing { background: #fee2e2; color: #7f1d1d; border: 1px solid #e6a4a4; opacity: 1; }
+.button.site-check.checked { background: #f1f5f4; color: #344c48; border: 1px solid #ccd9d4; }
+.site-check-error { color: #9f2929; }
+.site-check-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 18px; }
+.site-check-batch p { margin: 0; white-space: normal; }
+.prospect-drawer .site-check-action { max-width: 100%; }
+
 :root {
   font-family: "Inter", sans-serif;
   color: #192d37;

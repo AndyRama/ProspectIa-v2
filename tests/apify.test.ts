@@ -54,7 +54,7 @@ test("Contrat Apify : build vérifié, budget, lancement unique, normalisation e
           title: "Entreprise de test",
           placeId: "ChIJ" + "a".repeat(23),
           website: "https://example.com",
-          emails: ["contact@example.com"],
+          emails: ["contact@atelier.fr"],
           phone: "+33123456789",
           city: "Ville test",
           location: { lat: 48, lng: 2 },
@@ -101,7 +101,7 @@ test("Contrat Apify : build vérifié, budget, lancement unique, normalisation e
     assert.equal(launch.body.locationQuery, undefined);
     assert.equal(launch.body.maxReviews, 0);
     assert.equal(launch.body.maximumLeadsEnrichmentRecords, 0);
-    assert.equal(launch.body.scrapeContacts, true);
+    assert.equal(launch.body.scrapeContacts, false);
     const results = await collectApify("token-test");
     assert.equal(results.pending, false);
     assert.equal(results.cost, 0.182);

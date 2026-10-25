@@ -139,7 +139,7 @@ test("archive persists, preserves dossier and excludes prospecting until restore
   await expect(drawer.getByRole("button", { name: "Sélectionner", exact: true })).toBeDisabled();
   await expect(drawer.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
   await expect(drawer.getByRole("button", { name: "Préparer le prompt refonte · coder" })).toBeDisabled();
-  await expect(drawer.getByRole("button", { name: /Analyser/ })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Analyse complète du site", exact: true })).toBeDisabled();
   await expect(drawer.getByRole("button", { name: "Désarchiver", exact: true })).toBeEnabled();
   await page.screenshot({ path: `${evidence}/archived-desktop.png`, fullPage: true });
   const after = await (await request.get("/api/state")).json();
