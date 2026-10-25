@@ -48,6 +48,7 @@ import type {
   Status,
 } from "../../server/types";
 import { api, safeUrl } from "./api";
+import { emailPromptEligible } from "../../server/services/generators/emailEligibility";
 import ProspectMap from "./Map";
 import HermesPrompt from "./HermesPrompt";
 import { makeQuery, queryForSearch, queryKey } from "../../server/searchQuery";
@@ -300,13 +301,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       await refresh();
     });
   const generate = (p: Prospect) =>
-    task("drafts", async () => {
-      const r = await api(`/prospects/${p.id}/drafts`, "POST", { engine });
-      await refresh();
-      setNotice({
-        text: `3 variantes préparées · ${r.mode}. Relisez-les avant utilisation.`,
-      });
-      go("drafts");
+    task("email-prompt", async () => {
+      const result = await api<Omit<HermesHandoff, "dossier">>(`/prospects/${p.id}/email-prompt`, "POST", { engine });
+      await refresh(); go("handoffs"); setPreview(result);
+      setNotice({ text: "Un prompt email pour default est prêt. Aucun brouillon Gmail créé, aucun message envoyé ni relance activée par ProspectAI." });
     });
   const createHandoff = (p: Prospect) =>
     task("handoff", async () => {
@@ -1146,13 +1144,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 eyebrow="DES MOTS QUI OUVRENT DES PORTES"
                 title="Un premier mot,"
                 accent="personnel."
-                text="Trois façons d’engager la conversation. Toujours à relire, jamais envoyées automatiquement."
+                text="Vos anciens brouillons restent consultables et modifiables. Pour un nouveau contact, préparez le prompt email destiné au profil default depuis la fiche prospect."
               />
               {!state.drafts.length ? (
                 <Empty
                   Icon={Mail}
                   title="Vos prochains échanges prennent forme ici"
-                  text="Ouvrez la fiche d’un prospect et préparez vos trois variantes personnalisées."
+                  text="Ouvrez une fiche avec un email réel valide pour préparer un prompt destiné à default. Vos anciens brouillons seront conservés ici."
                   action={
                     <button
                       className="button primary"
@@ -1203,7 +1201,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           )}
           {page === "handoffs" && (
             <>
-              <PageHero eyebrow="VOTRE COLLABORATION AVEC HERMÈS" title="Un projet prêt à" accent="transmettre." text="Des prompts précis et des dossiers sourcés pour confier la réalisation à votre employé Hermès IA." />
+              <PageHero eyebrow="VOTRE COLLABORATION AVEC HERMÈS" title="Un projet prêt à" accent="transmettre." text="Deux usages distincts : prompt email pour default, prompt de refonte pour coder. Copiez le prompt et joignez son dossier ; aucun profil n’est piloté par ProspectAI." />
               <div className="banner"><ShieldCheck size={19} /><span>Hermès reçoit vos consignes par copier-coller et par le dossier que vous lui joignez. Il doit attendre votre accord avant chaque étape, toute publication ou prise de contact.</span></div>
               {!state.handoffs.length ? <Empty Icon={FileText} title="Le bon dossier pour commencer" text="Depuis une fiche prospect, préparez un prompt adapté à la création du site, au menu ou à l’agent personnel." action={<button className="button primary" onClick={() => go("search")}>Explorer les prospects <ArrowRight size={16} /></button>} /> : (
                 <div className="deliverable-grid">{state.handoffs.map((h) => (
@@ -1598,23 +1596,23 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 <Monitor size={16} />
                 {busy === "handoff"
                   ? "Préparation…"
-                  : "Préparer le prompt Hermès"}
+                  : engine === "website" ? "Préparer le prompt refonte · coder" : "Préparer le prompt Hermès"}
               </button>
               <button
                 className="button primary full"
-                disabled={!!busy || !!opened.archived}
+                disabled={!!busy || !emailPromptEligible(opened)}
                 onClick={() => generate(opened)}
               >
-                {busy === "drafts" ? (
+                {busy === "email-prompt" ? (
                   <LoaderCircle className="spin" size={17} />
                 ) : (
                   <Sparkles size={17} />
                 )}
-                Préparer les 3 variantes
+                Préparer le prompt email · default
                 <ArrowRight size={16} />
               </button>
               <small>
-                Modèles locaux personnalisés · aucune API IA
+                {emailPromptEligible(opened) ? "Transfert manuel · aucun envoi ni activation. Premier mail à valider ; relances J3/J7/J15/J31 à approuver par campagne." : "Email réel valide requis · hors démo, archivage et opposition. Aucun envoi ni activation."}
               </small>
             </div>
           </aside>
@@ -1731,7 +1729,19 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         </>}
         <p>Pour proposer de nouveaux candidats à ce mode, importez un CSV avec une colonne <code>placeId</code> contenant leur véritable identifiant Google Maps. Un nom ou une adresse seuls ne suffisent pas pour lancer un paiement.</p>
       </Modal>}
-      {preview && <Modal title="Prompt et dossier pour Hermès IA" onClose={() => setPreview(null)} wide><HermesPrompt key={preview.id} handoff={preview} /></Modal>}
+      {preview && <Modal title={preview.kind === "email" ? "Prompt email · profil default" : preview.targetProfile === "coder" ? "Prompt refonte · profil coder" : "Prompt et dossier pour Hermès IA"} onClose={() => setPreview(null)} wide>
+        {preview.kind === "email" ? <div className="hermes-prompt">
+          <p className="hermes-intro">Copiez ce prompt dans le profil default et joignez le dossier. ProspectAI ne transmet rien, ne crée aucun brouillon Gmail et n’active aucune relance.</p>
+          <div className="banner"><ShieldCheck size={18} /><span>Premier mail : brouillon, relecture et validation humaine avant envoi. Relances J3/J7/J15/J31 : approbation explicite par campagne, après envoi réel du premier mail ; arrêt dès réponse ou refus.</span></div>
+          <div className="button-group hermes-actions">
+            <a className="button primary" href={`/api/handoffs/${preview.id}/export?format=dossier`}><Download size={16} /> Dossier complet · JSON</a>
+            <button className="button ghost" onClick={() => task("copy-email-prompt", async () => { await navigator.clipboard.writeText(preview.prompt); setNotice({ text: "Prompt copié. Collez-le manuellement dans le profil default." }); })}><Copy size={16} /> Copier le prompt</button>
+            <a className="button ghost" href={`/api/handoffs/${preview.id}/export`}><Download size={16} /> Prompt · Markdown</a>
+          </div>
+          <label className="hermes-text-label">PROMPT À TRANSMETTRE À HERMÈS<textarea readOnly rows={22} value={preview.prompt} /></label>
+          <p className="source-note">Aucun routage réel entre profils. Les accès Gmail et le script scripts/email-followups.ts sont à vérifier séparément. En cas d’échec de copie, sélectionnez le texte manuellement.</p>
+        </div> : <HermesPrompt key={preview.id} handoff={preview} />}
+      </Modal>}
 
     </div>
   );

@@ -139,8 +139,8 @@ test("archive persists, preserves dossier and excludes prospecting until restore
   await row.getByRole("button", { name: "Voir la fiche" }).click();
   const drawer = page.getByRole("complementary", { name: "Fiche prospect" });
   await expect(drawer.getByRole("button", { name: "Sélectionner", exact: true })).toBeDisabled();
-  await expect(drawer.getByRole("button", { name: "Préparer les 3 variantes" })).toBeDisabled();
-  await expect(drawer.getByRole("button", { name: "Préparer le prompt Hermès" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Préparer le prompt email · default" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Préparer le prompt refonte · coder" })).toBeDisabled();
   await expect(drawer.getByRole("button", { name: /Analyser/ })).toBeDisabled();
   await expect(drawer.getByRole("button", { name: "Désarchiver", exact: true })).toBeEnabled();
   await page.screenshot({ path: `${evidence}/archived-desktop.png`, fullPage: true });

@@ -4,7 +4,7 @@ ProspectAI aide à trouver des entreprises locales, consulter leur présence web
 
 Les nouvelles recherches utilisent uniquement **Apify avec exclusions avant facturation** ; le parcours gratuit OpenStreetMap/Sirene est désactivé. L'enrichissement ciblé historique reste disponible. La recherche Apify demande un aperçu et une confirmation : les identifiants déjà connus sont transmis en exclusion, avec une mémoire « uniquement nouveaux » conservée entre les runs. Un lot n'est pas garanti à 25 résultats et des frais de lancement peuvent subsister même sans résultat. Voir [le contrat et les limites Apify](docs/APIFY.md).
 
-Les recherches anciennes, les prospects, les sélections et les statuts restent conservés. Les prompts Hermès et l’offre d’agent personnel sont maintenus. Aucune connexion Gmail, publication de maquette ni API de rédaction n’est utilisée.
+Les recherches anciennes, les prospects, les sélections et les statuts restent conservés. Les prompts Hermès et l’offre d’agent personnel sont maintenus. L’interface ne se connecte pas à Gmail et ne publie pas de maquette. Le script de relances optionnel se connecte à Gmail uniquement après configuration et activation distinctes ; aucune API de rédaction n’est utilisée.
 
 ## Deux profils Hermes optionnels
 
@@ -94,7 +94,7 @@ Pour garder votre historique lors d’une mise à jour, **conserver le dossier `
 
 Aucune clé API de rédaction n’est nécessaire. Vous pouvez donner le prompt à Hermès ou le copier manuellement dans votre interface ChatGPT habituelle si elle correspond à votre workflow. L’abonnement ChatGPT Plus ne fournit pas d’accès programmatique à l’API et n’est pas connecté à ProspectAI. Les limites de votre abonnement continuent de s’appliquer dans l’interface utilisée.
 
-Les trois brouillons de prospection encore proposés dans l’application sont des **modèles locaux**, personnalisés avec votre business et les observations réellement disponibles. Ils ne sont pas rédigés par ChatGPT. Vous pouvez les relire, les modifier, les copier ou les confier à Hermès. Aucun message n’est envoyé depuis ProspectAI.
+L’action de prospection prépare maintenant **un prompt email pour le profil Hermes `default`**, à copier manuellement : premier brouillon Gmail au nom d’Andy Ramaroson, relecture et autorisation distincte avant le premier envoi. L’action de refonte prépare un **prompt pour `coder`**, sans lancer de codeur ni modifier le site. Les anciens brouillons locaux restent lisibles. Un script optionnel permet ensuite les relances J+3/J+7/J+15/J+31, uniquement après approbation explicite de la campagne et vérification de l’envoi réel initial ; il s’arrête dès une réponse ou opposition. Le bouton de prompt n’envoie rien et n’active aucun planificateur. Voir [le fonctionnement et les protections](docs/HERMES-PROMPTS-RELANCES.md).
 
 ## Apify : vérifier les identifiants avant de payer
 
