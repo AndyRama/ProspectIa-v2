@@ -208,9 +208,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [searchDiagnostic, setSearchDiagnostic] = useState<{ text: string; error?: boolean } | null>(null);
 
   const busyRef = useRef(false);
-  const contactCancelRef = useRef(false);
-  const [contactStopping, setContactStopping] = useState(false);
-  const [contactBatch, setContactBatch] = useState<{ found: number; not_found: number; failed: number; total: number; stopped?: boolean; lastError?: string } | null>(null);
   const [siteBatch, setSiteBatch] = useState<{ success: number; failed: number; total: number; lastError?: string } | null>(null);
   const [discovery, setDiscovery] = useState<{ plan: DiscoveryPlan; input: { city: string; activity: string; keyword: string; engine: Engine; max: number; budget: number }; requestId: string } | null>(null);
   const discoveryInput = { city, activity, keyword, engine, max: Math.min(25, state?.settings.limits.max ?? 25), budget };
@@ -344,32 +341,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       {reason && <small>{reason}</small>}
       {check && <small className={check.status === "failed" ? "site-check-error" : ""}>{check.status === "found" ? "Email public trouvé" : check.status === "not_found" ? "Aucun email public trouvé sur les pages consultées" : `Recherche impossible : ${check.error || "lecture du site impossible"}`} · {date(check.checkedAt)}</small>}
     </div>;
-  };
-  const stopContactBatch = () => {
-    contactCancelRef.current = true;
-    setContactStopping(true);
-  };
-  // Contact reads are only started by an explicit drawer or batch action.
-  const runContactQueue = async (queue: Prospect[]) => {
-    contactCancelRef.current = false;
-    setContactStopping(false);
-    setBusy("contact-check-batch");
-    const summary = { found: 0, not_found: 0, failed: 0, total: queue.length, stopped: false, lastError: "" };
-    setContactBatch({ ...summary });
-    try {
-      for (const p of queue) {
-        if (contactCancelRef.current) break;
-        try { summary[await checkContact(p)]++; }
-        catch (error) { summary.failed++; summary.lastError = `${p.name} : ${(error as Error).message}`; }
-        setContactBatch({ ...summary });
-      }
-      summary.stopped = contactCancelRef.current && summary.found + summary.not_found + summary.failed < summary.total;
-    } finally {
-      setContactBatch({ ...summary });
-      setContactStopping(false);
-    }
-    const unprocessed = summary.total - summary.found - summary.not_found - summary.failed;
-    setNotice({ text: `${summary.stopped ? "Lot arrêté. " : ""}${summary.found} emails récupérés · ${summary.not_found + summary.failed + unprocessed} indisponibles · ${summary.failed} échec(s) · ${unprocessed} non traité(s). ${summary.lastError}`, error: summary.failed > 0 });
   };
   const checkSite = async (p: Prospect) => {
     if (p.archived || p.demo || !p.website.trim()) return;
@@ -541,23 +512,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     }
     setNotice({ text: `${summary.success} réussite(s) · ${summary.failed} échec(s). ${summary.lastError}`, error: summary.failed > 0 });
   });
-  const contactCandidates = rows.filter(p => contactEligible(p) && !emailPromptEligible(p)).slice(0, 25);
-  const contactCatalogue = [...new Map(canonical.map(p => [p.id, p])).values()];
-  const allContactCandidates = contactCatalogue.filter(p => contactEligible(p) && !emailPromptEligible(p));
-  const contactIgnored = (items: Prospect[]) => {
-    const active = items.filter(p => !p.archived && !p.demo);
-    return `${active.filter(p => !p.website.trim()).length} sans site · ${active.filter(p => !!p.website.trim() && !safeUrl(p.website)).length} URL invalide(s) · ${active.filter(p => p.doNotContact).length} opposé(s) : non traités (motifs éventuellement cumulés).`;
-  };
-  const checkContacts = (queue: Prospect[]) => task("contact-check-batch", () => runContactQueue(queue));
-  const checkDisplayedContacts = () => checkContacts([...contactCandidates]);
-  const checkAllContacts = () => {
-    if (busyRef.current || !allContactCandidates.length) return;
-    // Freeze the canonical queue before confirmation, independently of displayed filters.
-    const queue = allContactCandidates.slice(0, 2000);
-    const capped = allContactCandidates.length > queue.length ? ` Limite de 2000 sites par lot : ${allContactCandidates.length - queue.length} candidat(s) ne seront pas traités dans ce lot.` : "";
-    if (!window.confirm(`Récupérer les emails de toute la base : ${queue.length} site(s), y compris hors recherche et filtres actifs ?${capped}\n${contactIgnored(contactCatalogue)}\nUn à un, jusqu’à 4 pages et 15 secondes par site. Aucun nouvel appel Apify, aucun paiement Apify, aucune suppression ni envoi. Chaque résultat est enregistré et relu dans la base. Arrêt possible après la requête courante. Aucun email garanti.`)) return;
-    return checkContacts(queue);
-  };
   const archivedCount = canonical.filter((p) => p.archived).length;
   const currentQuery = makeQuery({ city, activity, keyword, paid: false, engine });
   const savedSearch = state.searches.find((s) => {
@@ -1108,19 +1062,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </span>
               </div>
               <section className="card table-card">
-                {page !== "archives" && <div className="contact-check-batch" aria-live="polite">
-                  <div className="button-group">
-                    <button className="button primary small" disabled={!!busy || !allContactCandidates.length} onClick={checkAllContacts}>Récupérer les emails de toute la base</button>
-                    <button className="button ghost small" disabled={!!busy || !contactCandidates.length} onClick={checkDisplayedContacts}>Récupérer les emails des sites affichés</button>
-                    {busy === "contact-check-batch" && <button className="button ghost small" disabled={contactStopping} onClick={stopContactBatch}>{contactStopping ? "Arrêt demandé…" : "Arrêter après le site en cours"}</button>}
-                  </div>
-                  <p>L’Actor Business recherche les contacts publiés sur les sites lorsque ceux-ci sont disponibles. Cette recherche locale complémentaire est distincte, uniquement sur demande explicite, sans nouvel appel Apify ni paiement Apify, sans suppression ni envoi de message.</p>
-                  <p>Toute la base : {allContactCandidates.length} site(s) éligible(s), indépendamment de la recherche et des filtres · 2000 maximum par lot.{allContactCandidates.length > 2000 && ` Attention : ${allContactCandidates.length - 2000} candidat(s) au-delà de la limite ne seront pas traités dans ce lot.`}</p>
-                  <p>Base active hors démos : {contactIgnored(contactCatalogue)} Affichés : {contactIgnored(rows)}</p>
-                  <p>Emails manquants ou invalides uniquement · choix affichés : 25 sites maximum · traitement un à un, accueil et pages de contact, jusqu’à 4 pages et 15 secondes par site. Aucun résultat garanti.</p>
-                  <p>Chaque résultat est enregistré puis relu dans la base. Un nouveau clic exclut les emails devenus valides ; les introuvables et échecs peuvent être retentés, ce n’est pas une reprise exacte du lot précédent.</p>
-                  {contactBatch && <p>{contactBatch.found} trouvé(s) · {contactBatch.not_found} introuvable(s) · {contactBatch.failed} échec(s) · {contactBatch.found + contactBatch.not_found + contactBatch.failed}/{contactBatch.total} traités{busy === "contact-check-batch" ? contactStopping ? " · Arrêt après la requête courante…" : " · En cours…" : contactBatch.stopped ? " · Arrêté" : " · Terminé"}{contactBatch.lastError && <span className="site-check-error"> · {contactBatch.lastError}</span>}</p>}
-                </div>}
                 {page !== "archives" && <div className="site-check-batch" aria-live="polite">
                   <button className="button ghost small" disabled={!!busy || !siteCandidates.length} onClick={checkDisplayedSites}>Vérifier les sites affichés</button>
                   <p>Contrôle préliminaire · page d’accueil uniquement · 25 sites maximum, un à un · sans Apify.</p>
