@@ -42,32 +42,21 @@ const search = 'Rechercher l’email sur le site';
 const batch = 'Récupérer les emails des sites affichés';
 const wholeBase = 'Récupérer les emails de toute la base';
 
-test('whole catalogue ignores active search and filters, confirms then processes more than 25 with readback', async ({ page }) => {
-  const api = await fixture(page, [
-    { id: 'not-found', name: 'Introuvable' }, { id: 'failed', name: 'Échec' },
-    { id: 'invalid', name: 'Email invalide', email: 'nope' },
-    { id: 'duplicate', name: 'Doublon', duplicateOf: 'found' },
-    ...Array.from({ length: 28 }, (_, i) => ({ id: `whole-${i}`, name: `Entreprise ${i}` })),
-  ], { activeIds: ['valid', 'invalid'] });
-  await page.getByRole('button', { name: 'Avec email', exact: true }).click();
+test('email batch panel, controls and explanatory counters are absent while site checks remain', async ({ page }) => {
+  const api = await fixture(page);
+  for (const target of ['search', 'leads', 'selection', 'archives']) {
+    if (target !== 'search') await page.locator('.sidebar').getByRole('button', { name: target === 'leads' ? /Tous les leads/ : target === 'selection' ? /Ma sélection/ : /Archives/ }).click();
+    await expect(page.locator('.contact-check-batch')).toHaveCount(0);
+    for (const name of [batch, wholeBase, 'Arrêter après le site en cours', 'Arrêt demandé…']) {
+      await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+    }
+    for (const text of ['L’Actor Business recherche les contacts publiés', 'Toute la base :', 'Base active hors démos :', 'Emails manquants ou invalides uniquement', 'Chaque résultat est enregistré puis relu dans la base.']) {
+      await expect(page.getByText(text, { exact: false })).toHaveCount(0);
+    }
+    await expect(page.getByRole('button', { name: 'Vérifier les sites affichés', exact: true })).toHaveCount(target === 'archives' ? 0 : 1);
+  }
   expect(api.calls).toEqual([]);
-  await expect(page.locator('.contact-check-batch')).toContainText('1 sans site');
-  await expect(page.locator('.contact-check-batch')).toContainText('1 opposé(s)');
-  page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('button', { name: wholeBase, exact: true }).click();
-  expect(api.calls).toEqual([]);
-  page.once('dialog', async dialog => { expect(dialog.message()).toContain('32'); await dialog.accept(); });
-  await page.getByRole('button', { name: wholeBase, exact: true }).click();
-  await expect(page.getByRole('button', { name: wholeBase, exact: true })).toBeDisabled();
-  await expect(page.locator('.contact-check-batch')).toContainText('32/32 traités', { timeout: 25000 });
-  await expect(page.locator('.contact-check-batch')).toContainText('30 trouvé(s) · 1 introuvable(s) · 1 échec(s)');
-  expect(api.calls).toHaveLength(32); expect(new Set(api.calls).size).toBe(32); expect(api.maxActive()).toBe(1);
-  for (const id of ['missing', 'refused', 'demo', 'archive', 'valid', 'duplicate']) expect(api.calls).not.toContain(id);
-  await page.reload();
-  page.once('dialog', async dialog => { expect(dialog.message()).toContain('2'); await dialog.accept(); });
-  await page.getByRole('button', { name: wholeBase, exact: true }).click();
-  await expect(page.locator('.contact-check-batch')).toContainText('2/2 traités');
-  expect(api.calls.slice(32)).toEqual(['not-found', 'failed']); expect(api.errors).toEqual([]);
+  expect(api.errors).toEqual([]);
 });
 
 for (const mode of ['new', 'cached', 'noeligible', 'partial'] as const) test(`Apify ${mode} poll persists the lot without automatic contact checks`, async ({ page }) => {
@@ -135,33 +124,10 @@ for (const status of ['pending', 'paused'] as const) test(`loaded ${status} chec
   expect(api.errors).toEqual([]);
 });
 
-test('whole-base cap warns, stop remains accessible while busy and finishes only the in-flight request', async ({ page }) => {
-  const api = await fixture(page, Array.from({ length: 2000 }, (_, i) => ({ id: `large-${i}`, name: `Entreprise ${i}` })), { activeIds: ['valid'], delay: 1500 });
-  await expect(page.locator('.contact-check-batch')).toContainText('2001 site(s) éligible(s)');
-  await expect(page.locator('.contact-check-batch')).toContainText('1 candidat(s) au-delà');
-  page.once('dialog', async dialog => {
-    expect(dialog.message()).toContain('2000 site(s)');
-    expect(dialog.message()).toContain('1 candidat(s) ne seront pas traités');
-    await dialog.accept();
-  });
-  await page.getByRole('button', { name: wholeBase, exact: true }).click();
-  await expect.poll(() => api.calls.length).toBe(1);
-  await expect(page.locator('.contact-check-batch')).toContainText('0/2000 traités');
-  await expect(page.getByRole('button', { name: batch, exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Arrêter après le site en cours', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Arrêt demandé…', exact: true })).toBeDisabled();
-  await expect(page.locator('.contact-check-batch')).toContainText('1/2000 traités · Arrêté');
-  await expect(page.getByRole('button', { name: wholeBase, exact: true })).toBeEnabled();
-  expect(api.calls).toEqual(['found']); expect(api.maxActive()).toBe(1);
-  await page.reload();
-  await expect(page.locator('.contact-check-batch')).toContainText('2000 site(s) éligible(s)');
-  expect(api.calls).toEqual(['found']); expect(api.errors).toEqual([]);
-});
-
 test('compact row has no email actions or warnings; explicit drawer lookup persists before unlocking prompt', async ({ page }) => {
   const api = await fixture(page, [{ id: 'old-failed', name: 'Ancien échec email', phone: '0123456789', email: 'public@atelier-fixture.fr', contactCheck: { status: 'failed', checkedAt: '2026-01-01T00:00:00Z', error: 'Erreur email historique' } }]);
   expect(api.calls).toEqual([]);
-  await expect(page.getByText(/L’Actor Business recherche les contacts publiés/)).toBeVisible();
+  await expect(page.getByText(/L’Actor Business recherche les contacts publiés/)).toHaveCount(0);
   const rows = page.locator('tbody');
   await expect(rows.getByRole('button', { name: /prompt email|Compléter l’email|Corriger l’email|Rechercher l’email/ })).toHaveCount(0);
   await expect(rows.locator('.contact-check-action')).toHaveCount(0);
@@ -237,26 +203,4 @@ test('stale readback never unlocks email; failures and not found stay retryable 
   await expect(row).not.toContainText('Lecture du site impossible');
   await expect(row).not.toContainText('Aucun email public trouvé');
   expect(api.calls).toEqual(['found', 'found', 'found']);
-});
-
-test('batch explicitly visits at most 25 displayed eligible missing or invalid emails sequentially with mixed summary', async ({ page }) => {
-  const api = await fixture(page, [{ id: 'not-found', name: 'Introuvable' }, { id: 'failed', name: 'Échec' }, { id: 'invalid', name: 'Email invalide', email: 'nope' }, ...Array.from({ length: 27 }, (_, i) => ({ id: `batch-${i}`, name: `Entreprise ${i}` }))]);
-  expect(api.calls).toEqual([]);
-  await page.getByRole('button', { name: batch, exact: true }).click();
-  await expect(page.getByRole('button', { name: batch, exact: true })).toBeDisabled();
-  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true })).toHaveCount(0);
-  await expect(page.locator('.contact-check-batch')).toContainText('23 trouvé(s) · 1 introuvable(s) · 1 échec(s)', { timeout: 25000 });
-  expect(api.calls).toHaveLength(25); expect(new Set(api.calls).size).toBe(25); expect(api.maxActive()).toBe(1);
-  for (const id of ['missing', 'refused', 'demo', 'archive', 'valid']) expect(api.calls).not.toContain(id);
-  expect(api.calls).toContain('invalid'); expect(api.errors).toEqual([]);
-});
-
-test('batch follows displayed filters and stale persistence counts as failure', async ({ page }) => {
-  const api = await fixture(page, [{ id: 'invalid', name: 'Email invalide', email: 'nope' }]);
-  await page.getByRole('button', { name: 'Avec email', exact: true }).click();
-  await expect(page.locator('tbody tr')).toHaveCount(2);
-  api.persist(false);
-  await page.getByRole('button', { name: batch, exact: true }).click();
-  await expect(page.locator('.contact-check-batch')).toContainText('0 trouvé(s) · 0 introuvable(s) · 1 échec(s)');
-  expect(api.calls).toEqual(['invalid']);
 });

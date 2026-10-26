@@ -8,16 +8,14 @@ Source officielle consultée : https://api.apify.com/v2/acts/benthepythondev~goo
 
 ## Nouveau parcours
 
-La récupération automatique des emails est désactivée, y compris après sauvegarde d’un **nouveau lot Apify**. Une recherche publique ne démarre que par une action explicite dans la fiche ou un lot confirmé. Google Maps ne fournit pas l’email et la présence d’une adresse publique sur le site n’est pas garantie ; cette limite reste affichée avant paiement.
+La récupération automatique des emails est désactivée, y compris après sauvegarde d’un **nouveau lot Apify**. La recherche locale complémentaire d’un email public ne démarre que par une action explicite dans la fiche. Google Maps ne fournit pas l’email et la présence d’une adresse publique sur le site n’est pas garantie ; cette limite reste affichée avant paiement.
 
-La file est séquentielle dans le navigateur, avec progression et arrêt. Fermer l’application interrompt le traitement ; aucun checkpoint ne reprend automatiquement au rechargement. Les résultats confirmés dans la base restent acquis. Un nouveau traitement exige une action explicite et exclut les adresses devenues valides.
+Le panneau de récupération des emails en lot a été retiré pour alléger le tableau. La recherche individuelle dans la fiche reste disponible ; ses résultats confirmés dans la base restent acquis. Aucun traitement local ne démarre à l’import, à la réouverture d’une ancienne recherche ou au simple chargement du dashboard.
 
 Pour **les prospects déjà payés et enregistrés**, ne pas réinitialiser la base ni relancer Apify :
 
 - **Rechercher l’email sur le site** consulte explicitement la page publique du lead puis les pages de contact pertinentes du même site.
-- **Récupérer les emails des sites affichés** traite un lot manuel borné de fiches éligibles sans adresse exploitable, un lead à la fois.
-- Un nouveau lot Apify reste enregistré sans lancer d’extraction d’emails. Les contacts ne sont recherchés que sur demande explicite ; cette étape n’engage aucun nouveau run Apify.
-- **Récupérer les emails de toute la base** permet aussi de rattraper les prospects déjà collectés, indépendamment des filtres d’affichage, après confirmation. La progression distingue trouvés, introuvables, échecs et fiches non éligibles ; l’arrêt prend effet après la requête en cours. Les résultats déjà enregistrés restent acquis et les adresses valides sont exclues d’une nouvelle passe. Aucun traitement ne démarre à l’import, à la réouverture d’une ancienne recherche ou au simple chargement du dashboard.
+- Un nouveau lot Apify conserve les contacts éventuellement fournis par l’Actor et reste enregistré sans lancer de recherche locale complémentaire d’emails. La recherche individuelle dans la fiche n’engage aucun nouveau run Apify.
 - L’adresse trouvée conserve sa page source, sa date et la qualification **publique, non vérifiée**. Aucune adresse n’est construite à partir du nom d’un dirigeant, d’un modèle supposé ou du domaine.
 - Le résultat distingue **trouvé**, **aucun email public trouvé dans les pages consultées**, et **vérification impossible**. Un échec ou une absence ne prouve pas que l’entreprise n’a pas d’email.
 - Une adresse utilisateur valide n’est jamais remplacée. Sans site, conserver la saisie manuelle d’une adresse réellement connue.
