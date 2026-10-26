@@ -147,14 +147,14 @@ function Link({ href, children }: { href: string; children: React.ReactNode }) {
 }
 type DiscoveryPricingEvent = { eventTitle?: string; eventDescription?: string; eventPriceUsd?: number; eventTieredPricingUsd?: Record<string, { tieredEventPriceUsd: number }> };
 type DiscoveryPlan = {
-  planId: string; actor: string; city: string; query: string; max: number; budget: number;
+  planId: string; actor: string; actorId: string; city: string; query: string; max: number; budget: number;
   excludedCount: number; unidentifiedCount: number; unresolvedUrlCount: number; warnings: string[];
-  blocked: boolean; blockedReason: string | null; coverage?: { requireEmail: boolean; email?: string };
+  blocked: boolean; blockedReason: string | null; coverage?: { requireEmail: boolean; scrapeContacts: boolean; email?: string };
   pricing?: { currency: string; events: Record<string, DiscoveryPricingEvent>; tier?: string; source: string; effectiveAt: string | null; accountTierVerified: boolean };
 };
 function discoveryBlockReason(plan: DiscoveryPlan): string {
   if (plan.blocked) return plan.blockedReason || "Collecte bloquée par le fournisseur.";
-  if (plan.blocked !== false || !/^[a-f0-9]{64}$/.test(plan.planId) || !plan.actor?.trim() || plan.coverage?.requireEmail !== true) return "Aperçu non validé : préparez un nouveau plan fournisseur.";
+  if (plan.blocked !== false || !/^[a-f0-9]{64}$/.test(plan.planId) || plan.actor !== "benthepythondev/google-maps-business-scraper" || plan.actorId !== "uU8ybh0dgvI68Q3o2" || plan.coverage?.requireEmail !== false || plan.coverage?.scrapeContacts !== true) return "Aperçu non validé : préparez un nouveau plan fournisseur.";
   const pricing = plan.pricing;
   const validRate = (rate: unknown) => typeof rate === "number" && Number.isFinite(rate) && rate >= 0;
   if (!pricing || pricing.currency !== "USD" || !safeUrl(pricing.source) || !pricing.events?.["apify-actor-start"] || !pricing.events?.["apify-default-dataset-item"] || Object.values(pricing.events).some(event => {
@@ -205,6 +205,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     [webFilter, setWebFilter] = useState("all"),
     [socialFilter, setSocialFilter] = useState(false);
   const [runRecovery, setRunRecovery] = useState("");
+  const [searchDiagnostic, setSearchDiagnostic] = useState<{ text: string; error?: boolean } | null>(null);
 
   const busyRef = useRef(false);
   const contactCancelRef = useRef(false);
@@ -220,8 +221,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const prepareDiscovery = () => task("discovery-plan", async () => {
     if (state?.settings.pending || !Number.isFinite(budget) || budget < 0.05 || budget > Math.min(10, state?.settings.limits.budget ?? 1) || city.trim().length < 2) return;
     const key = criteriaKey;
-    const plan = await api("/apify/discovery/plan", "POST", discoveryInput);
-    if (criteriaRef.current === key) setDiscovery({ plan, input: discoveryInput, requestId: crypto.randomUUID() });
+    setSearchDiagnostic(null);
+    try {
+      const plan = await api("/apify/discovery/plan", "POST", discoveryInput);
+      if (criteriaRef.current === key) {
+        setDiscovery({ plan, input: discoveryInput, requestId: crypto.randomUUID() });
+        const reason = discoveryBlockReason(plan);
+        setSearchDiagnostic({ text: reason || "Aperçu prêt. Aucun lancement sans votre confirmation explicite.", error: !!reason });
+      }
+    } catch (error) {
+      setSearchDiagnostic({ text: (error as Error).message, error: true });
+      throw error;
+    }
   });
   const confirmDiscovery = () => {
     if (!discovery || discoveryBlockReason(discovery.plan) || busyRef.current || state?.settings.pending || !state?.settings.apifyConfigured || JSON.stringify(discovery.input) !== criteriaRef.current) return;
@@ -229,6 +240,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     return task("discovery-start", async () => {
       try {
         receive(await api("/apify/discovery/start", "POST", { ...intention.input, planId: intention.plan.planId, requestId: intention.requestId, confirmed: true }));
+      } catch (error) {
+        setSearchDiagnostic({ text: (error as Error).message, error: true });
+        throw error;
       } finally {
         setDiscovery(null);
         await refresh();
@@ -280,11 +294,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       setBusy("");
     }
   }
+  const resetFilters = () => {
+    setFilterEmail("all"); setFit("all"); setSort("source");
+    setMinRating(""); setMinReviews(""); setWebFilter("all"); setSocialFilter(false);
+  };
   const go = (p: Page) => {
-    if (p === "leads" || p === "archives") {
-      setFilterEmail("all"); setFit("all"); setSort("source");
-      setMinRating(""); setMinReviews(""); setWebFilter("all"); setSocialFilter(false);
-    }
+    if (p === "leads" || p === "archives") resetFilters();
     setPage(p);
     setMobile(false);
     setOpened(null);
@@ -412,16 +427,20 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   };
   const receive = (r: any) => {
     if (r.pending) {
+      setSearchDiagnostic({ text: "Collecte Apify en cours ou en finalisation. Récupérez le même run, sans relancer ni repayer." });
       setNotice({
         text: r.status === "FINALIZING" ? "Résultats Apify en finalisation ; coût en cours de mise à jour. Récupérez ce même run plus tard, sans relancer." : "Collecte Apify lancée. Utilisez « Récupérer la collecte » pour consulter son avancement, sans relancer ni repayer.",
       });
       return;
     }
     if (!r.search) {
-      setActiveIds([]); setNotice({ text: r.message || "Aucun nouveau candidat. Aucune dépense." }); return;
+      setActiveIds([]); setSearchRecord(null);
+      const text = r.message || "Aucun nouveau candidat retourné. Des frais de lancement restent possibles.";
+      setNotice({ text }); setSearchDiagnostic({ text }); return;
     }
     setActiveIds(r.search.ids);
     setSearchRecord(r.search);
+    setSearchDiagnostic({ text: `${r.search.count} fiche(s) retournée(s). Coût ${r.search.provider === "Apify" ? "Apify" : "retourné"} : ${r.search.cost === null || r.search.cost === undefined ? "non communiqué" : `${r.search.cost} USD`}. Aucune relance automatique.` });
     setNotice({
       text: r.cached ? `${r.search.count} fiche(s) enregistrées réouvertes. Aucune nouvelle collecte ni dépense.` : r.search.provider === "Apify" ? `${r.search.count} fiche(s) ${r.enriched ? "enrichies par identifiants validés" : "collectées par Apify"}. Coût retourné par Apify : ${r.search.cost === null ? "non communiqué" : `${r.search.cost} USD`}.` : `${r.search.count} fiche(s) uniques · ${r.search.newCount ?? r.search.count} nouvelle(s) · ${r.search.knownCount ?? 0} déjà connue(s).${r.remaining !== undefined ? ` ${r.remaining} candidat(s) en réserve. Aucun crédit Apify dépensé.` : ""}`,
     });
@@ -472,10 +491,20 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       </div>
     );
   const canonical = state.prospects.filter((p) => !p.duplicateOf);
+  // Only explicit persisted aliases establish identity; never infer it from names or URLs.
+  const byId = new Map(state.prospects.map(p => [p.id, p]));
+  const resolvedActiveIds = activeIds && [...new Set(activeIds.map(id => {
+    const seen = new Set<string>();
+    while (byId.get(id)?.duplicateOf && !seen.has(id)) {
+      seen.add(id); id = byId.get(id)!.duplicateOf!;
+    }
+    return id;
+  }))];
+  const scopedArchived = page === "search" && resolvedActiveIds !== null && canonical.some(p => p.archived && resolvedActiveIds.includes(p.id)) && !canonical.some(p => !p.archived && resolvedActiveIds.includes(p.id));
   let rows = canonical.filter((p) =>
     page === "leads" || page === "archives"
       ? page === "archives" ? !!p.archived : !p.archived
-      : !p.archived && (page === "selection" ? p.selected : !activeIds || activeIds.includes(p.id)),
+      : !p.archived && (page === "selection" ? p.selected : !resolvedActiveIds || resolvedActiveIds.includes(p.id)),
   );
   const total = rows.length;
   const directory = page === "leads" || page === "archives";
@@ -495,8 +524,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     rows.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
   if (sort === "reviews")
     rows.sort((a, b) => (b.reviews ?? -1) - (a.reviews ?? -1));
-  if (!directory && sort === "source" && activeIds) {
-    const order = new Map(activeIds.map((id, index) => [id, index]));
+  if (!directory && sort === "source" && resolvedActiveIds) {
+    const order = new Map(resolvedActiveIds.map((id, index) => [id, index]));
     rows.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
   }
   const selected = canonical.filter((p) => p.selected && !p.archived);
@@ -757,6 +786,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     <button
                       className="button primary search-button"
                       type="submit"
+                      aria-describedby="search-diagnostic"
                       disabled={!!busy || !!state.settings.pending || !Number.isFinite(budget) || budget < 0.05 || budget > Math.min(10, state.settings.limits.budget) || city.trim().length < 2}
                     >
                       {busy === "discovery-plan" ? (
@@ -767,8 +797,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                       Préparer une recherche Apify
                     </button>
                   </div>
+                  <div id="search-diagnostic" className="saved-search-note" aria-live="polite">
+                    <p>{searchDiagnostic?.error && <strong>{searchDiagnostic.text} </strong>}{state.settings.pending ? "Une collecte est déjà en cours ou à récupérer. Récupérez le même run ci-dessous, sans nouveau paiement." : (!searchDiagnostic?.error && searchDiagnostic?.text) || (!state.settings.apifyConfigured ? "Clé Apify absente : configurez-la dans les Paramètres avant tout lancement." : !Number.isFinite(budget) || budget < 0.05 || budget > Math.min(10, state.settings.limits.budget) ? "Budget invalide : respectez les limites affichées avant de préparer un aperçu." : city.trim().length < 2 ? "Renseignez une ville de deux caractères au minimum." : "Recherche d’entreprises Google Maps via Apify. Préparation locale, puis confirmation payante explicite.")}</p>
+                    {(searchDiagnostic?.error || !state.settings.apifyConfigured) && <button type="button" className="text-link" onClick={() => go("settings")}>Ouvrir les Paramètres</button>}
+                  </div>
                   <div className="saved-search-note">
-                    <p><strong>25 nouveaux au maximum, jamais une ancienne liste relancée.</strong> Les {state.prospects.filter((p) => !p.demo).length} entreprises déjà enregistrées sont prises en compte pour les exclusions. Préparez un aperçu local, puis confirmez explicitement la collecte Apify payante.</p>
+                    <p><strong>25 résultats au maximum, avec exclusions des identifiants et URLs Google connus.</strong> Les {state.prospects.filter((p) => !p.demo).length} entreprises déjà enregistrées sont examinées pour les exclusions. Les fiches sans identité Google exploitable ne peuvent pas être exclues avec certitude : un risque de refacturation subsiste. Préparez un aperçu, puis confirmez explicitement la collecte Apify payante.</p>
                     {savedSearch && <button type="button" className="button ghost small" disabled={!!busy} onClick={() => {
                       setActiveIds(scopeIds); setSearchRecord({ ...savedSearch, ids: scopeIds, count: scopeIds.length });
                       setNotice({ text: `${scopeIds.length} fiches de cette recherche réunies, sans nouvelle collecte ni paiement.` });
@@ -1080,7 +1114,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     <button className="button ghost small" disabled={!!busy || !contactCandidates.length} onClick={checkDisplayedContacts}>Récupérer les emails des sites affichés</button>
                     {busy === "contact-check-batch" && <button className="button ghost small" disabled={contactStopping} onClick={stopContactBatch}>{contactStopping ? "Arrêt demandé…" : "Arrêter après le site en cours"}</button>}
                   </div>
-                  <p>L’Actor EMAIL recherche déjà les emails publiés sur les sites. Cette recherche locale complémentaire est distincte, uniquement sur demande explicite, sans nouvel appel Apify ni paiement Apify, sans suppression ni envoi de message.</p>
+                  <p>L’Actor Business recherche les contacts publiés sur les sites lorsque ceux-ci sont disponibles. Cette recherche locale complémentaire est distincte, uniquement sur demande explicite, sans nouvel appel Apify ni paiement Apify, sans suppression ni envoi de message.</p>
                   <p>Toute la base : {allContactCandidates.length} site(s) éligible(s), indépendamment de la recherche et des filtres · 2000 maximum par lot.{allContactCandidates.length > 2000 && ` Attention : ${allContactCandidates.length - 2000} candidat(s) au-delà de la limite ne seront pas traités dans ce lot.`}</p>
                   <p>Base active hors démos : {contactIgnored(contactCatalogue)} Affichés : {contactIgnored(rows)}</p>
                   <p>Emails manquants ou invalides uniquement · choix affichés : 25 sites maximum · traitement un à un, accueil et pages de contact, jusqu’à 4 pages et 15 secondes par site. Aucun résultat garanti.</p>
@@ -1278,18 +1312,21 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 {!rows.length && (
                   <Empty
                     Icon={Search}
-                    title={
-                      total
-                        ? "Aucun résultat avec ces filtres"
-                        : "Les belles rencontres commencent ici"
-                    }
-                    text={
-                      total
-                        ? "Ajustez les filtres pour retrouver vos entreprises."
-                        : "Recherchez une ville, importez vos entreprises ou explorez la démonstration."
-                    }
-                    action={
-                      page === "search" ? (
+                    title={total ? "Aucun résultat avec ces filtres"
+                      : page === "archives" ? "Aucun lead archivé"
+                      : scopedArchived ? "Les leads de ce lot sont archivés"
+                      : !canonical.length ? "Aucun prospect enregistré"
+                      : !canonical.some(p => !p.archived) ? "Tous vos leads sont archivés"
+                      : page === "selection" ? "Aucun lead dans votre sélection"
+                      : activeIds?.length === 0 ? "Aucun résultat dans le dernier lot"
+                      : "Aucune fiche disponible pour ce lot"}
+                    text={total ? "Les filtres masquent les entreprises de cette vue. Réinitialisez-les sans changer de lot."
+                      : canonical.length ? `${canonical.length} lead(s) enregistré(s) sont conservés dans votre base. Consultez les leads ou les archives, sans nouvelle collecte ni paiement.`
+                      : "Recherchez une ville, importez vos entreprises ou explorez la démonstration."}
+                    action={total ? <button className="button ghost" onClick={resetFilters}>Réinitialiser les filtres</button>
+                      : scopedArchived || (canonical.length > 0 && !canonical.some(p => !p.archived) && page !== "archives") ? <button className="button ghost" onClick={() => go("archives")}>Afficher les archives</button>
+                      : canonical.length > 0 ? <button className="button ghost" onClick={() => { setActiveIds(null); setSearchRecord(null); go("leads"); }}>Afficher tous les leads</button>
+                      : page === "search" ? (
                         <button className="button ghost" onClick={demo}>
                           <Sparkles size={16} />
                           Explorer la démo
@@ -1909,8 +1946,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         <p><strong>{discovery.plan.city} · {typeof discovery.plan.query === "string" ? discovery.plan.query : discovery.input.keyword || activityLabel(discovery.input.activity)}</strong></p>
         <p>Maximum demandé : {discovery.plan.max} entreprises (25 au maximum). Budget d’arrêt demandé : {discovery.plan.budget.toFixed(2)} USD.</p>
         <p>Fournisseur : Apify · Actor <code>{discovery.plan.actor || "non identifié"}</code>.</p>
-        <div className="banner"><AlertCircle size={20} /><span><strong>Recherche EMAIL + coordonnées · requireEmail=true.</strong> L’Actor recherche les emails publiés sur les sites des entreprises Google Maps ; email non testé pour la délivrabilité. Email non garanti : aucun nombre de résultats ni contact complet n’est garanti. Aucun message Gmail n’est envoyé. Aucun site n’est consulté localement à la réception du lot. Toute recherche locale complémentaire exige une demande explicite ; sans URL exploitable, cette récupération est impossible.</span></div>
-        <p>Champs recherchés selon disponibilité : nom, activité, adresse, ville, téléphone, site et identifiant Google, avec email publié sur le site. Les valeurs absentes sont signalées dans la fiche, avec source et date lorsqu’elles sont disponibles.</p>
+        <div className="banner"><AlertCircle size={20} /><span><strong>Recherche d’entreprises Google Maps · scrapeContacts=true · requireEmail=false.</strong> L’Actor recherche les emails publiés et les réseaux sociaux selon disponibilité, sans supplément de collecte de contacts ; email non testé pour la délivrabilité. Entreprises sans email conservées. Email non garanti : aucun nombre de résultats ni contact complet n’est garanti. Aucun contact n’est inventé. Aucun message Gmail n’est envoyé. Aucun site n’est consulté localement à la réception du lot. Toute recherche locale complémentaire exige une demande explicite ; sans URL exploitable, cette récupération est impossible.</span></div>
+        <p>Champs recherchés selon disponibilité : nom, activité, adresse, ville, téléphone, site et identifiant Google, notes, avis, horaires, photos, email public et réseaux sociaux. Les valeurs absentes sont signalées dans la fiche, avec source et date lorsqu’elles sont disponibles.</p>
         <p>{discovery.plan.excludedCount} identifiants connus exclus avant facturation. {discovery.plan.unidentifiedCount} fiches sans identité Google exploitable · {discovery.plan.unresolvedUrlCount ?? 0} URL historique(s) non résolue(s).</p>
         <DiscoveryRates plan={discovery.plan} />
         <p>La mémoire fournisseur « only-new » et les exclusions sont transmises avant facturation des résultats. Les 25 résultats ne sont pas garantis. Des frais de lancement sont possibles même avec 0 résultat.</p>
@@ -2450,7 +2487,7 @@ function SettingsPage({
             <div className="banner">
               <ShieldCheck size={19} />
               <p>
-                La recherche Apify utilise l’Actor benthepythondev/google-maps-email-scraper (4MTxdHfGoKTLDoTrD), requireEmail=true : emails publiés sur les sites, non testés pour la délivrabilité. Aperçu avec tarification officielle, mémoire only-new et exclusions avant facturation des résultats, puis votre confirmation explicite. Les 25 résultats ne sont pas garantis ; des frais de lancement restent possibles même avec 0 résultat. Les paliers publics FREE sont un repère, pas un tarif du compte certifié. Aucun extracteur local ne se lance à réception. L’enrichissement ciblé historique utilise Compass avec des identifiants validés.
+                La recherche Apify utilise l’Actor benthepythondev/google-maps-business-scraper (uU8ybh0dgvI68Q3o2), scrapeContacts=true et requireEmail=false : entreprises Google Maps, emails publiés et réseaux sociaux selon disponibilité, sans supplément pour la collecte de contacts. Entreprises sans email conservées ; emails non testés pour la délivrabilité et non garantis. Aperçu avec tarification officielle, mémoire only-new et exclusions avant facturation des résultats, puis votre confirmation explicite. Les 25 résultats ne sont pas garantis ; des frais de lancement restent possibles même avec 0 résultat. Les paliers publics FREE sont un repère, pas un tarif du compte certifié. Aucun extracteur local ne se lance à réception. L’enrichissement ciblé historique utilise Compass avec des identifiants validés.
                 Le budget est transmis comme seuil d’arrêt à
                 Apify ; un événement facturable peut dépasser ce seuil. La
                 collecte est verrouillée si le schéma ou la tarification n’est

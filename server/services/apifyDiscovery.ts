@@ -4,11 +4,11 @@ import type { Engine, Search } from "../types";
 import { resolveSearch } from "../searches";
 import { makeQuery } from "../searchQuery";
 import { billedPlaceIds, validPlaceId } from "./apifyPlan";
-// Kept explicit for already-paid, durable business-Actor pending runs.
-export const legacyDiscoveryActor = "benthepythondev~google-maps-business-scraper";
-export const legacyDiscoveryActorId = "uU8ybh0dgvI68Q3o2";
-export const discoveryActor = "benthepythondev~google-maps-email-scraper";
-export const discoveryActorId = "4MTxdHfGoKTLDoTrD";
+// Keep both paid contracts explicit: pending runs belong to their recorded Actor.
+export const emailDiscoveryActor = "benthepythondev~google-maps-email-scraper";
+export const emailDiscoveryActorId = "4MTxdHfGoKTLDoTrD";
+export const discoveryActor = "benthepythondev~google-maps-business-scraper";
+export const discoveryActorId = "uU8ybh0dgvI68Q3o2";
 export type ApifyDiscoveryCriteria = {
   city: string;
   activity: string;
@@ -136,8 +136,8 @@ async function validate(args: ApifyDiscoveryCriteria) {
 }
 async function context(args: ApifyDiscoveryCriteria) {
   await validate(args);
-  await claimSetting("apifyEmailDiscoveryMonitorId", randomUUID());
-  const monitorId = await getSetting<string>("apifyEmailDiscoveryMonitorId", "");
+  await claimSetting("apifyDiscoveryMonitorId", randomUUID());
+  const monitorId = await getSetting<string>("apifyDiscoveryMonitorId", "");
   if (!monitorId) throw Error("Mémoire Apify indisponible.");
   const snapshot = await discoverySnapshot();
   const effective = makeQuery({ ...args, paid: true });
@@ -156,8 +156,8 @@ async function context(args: ApifyDiscoveryCriteria) {
   const verified = await verifyApifyDiscovery();
   const input = {
     mode: 'search', query, location: city, maxResults: args.max,
-    language: 'fr', countryCode: 'fr', requireEmail: true, skipClosed: true,
-    onlyNew: true, monitorId, excludePlaceIds: snapshot.ids, debugMode: false,
+    language: 'fr', scrapeContacts: true, includeReviews: true, includePhotos: true, includeLeadScore: true,
+    onlyNew: true, monitorId, excludePlaceIds: snapshot.ids, excludePlaceUrls: snapshot.urls, debugMode: false,
   };
   const planId = createHash("sha256")
     .update(
@@ -186,9 +186,9 @@ export async function planApifyDiscovery(args: ApifyDiscoveryCriteria) {
     build: c.verified.build,
     schemaFingerprint: c.verified.schemaFingerprint,
     pricing: c.verified.pricing,
-    coverage: { requireEmail: true, email: 'Email publié sur le site, non testé pour la délivrabilité', business: 'Nom, activité, adresse, ville, téléphone, site et identités Google selon disponibilité', monitorStore: 'google-maps-email-monitor' },
-    blocked: c.snapshot.unidentifiedCount > 0 || c.snapshot.unresolvedUrls.length > 0,
-    blockedReason: c.snapshot.unidentifiedCount > 0 || c.snapshot.unresolvedUrls.length > 0 ? 'Identités historiques non convertibles en exclusions exactes : migration bloquée pour éviter de repayer.' : null,
+    coverage: { requireEmail: false, scrapeContacts: true, email: 'Email publié sur le site selon disponibilité, non testé pour la délivrabilité', business: 'Coordonnées, détails, avis, photos et contacts publiés selon disponibilité ; aucune valeur garantie', monitorStore: 'google-maps-monitor' },
+    blocked: false,
+    blockedReason: null,
     unresolvedUrlCount: c.snapshot.unresolvedUrls.length,
     protection: { onlyNew: true, durableLock: true, confirmationRequired: true, maxResults: 25, singleSearch: true, maxTotalChargeUsd: args.budget },
     query: c.query,
@@ -199,8 +199,8 @@ export async function planApifyDiscovery(args: ApifyDiscoveryCriteria) {
     unidentifiedCount: c.snapshot.unidentifiedCount,
     warnings: [
       "Des frais de lancement Apify restent possibles même sans nouvelle entreprise.",
-      "25 résultats ne sont pas garantis ; seuls les établissements avec un email publié sont demandés. Aucune délivrabilité garantie.",
-      "La mémoire de cet Actor email est distincte de celle de l’ancien Actor business ; les exclusions exactes du catalogue restent nécessaires.",
+      "25 résultats ne sont pas garantis ; les entreprises sans email restent incluses. Aucun champ ni délivrabilité garanti.",
+      `${c.snapshot.unidentifiedCount} fiches ou références sans identité Google exploitable ne peuvent pas être exclues avec certitude ; risque de repayer ces entreprises. Les identifiants et URL connus sont transmis avant lancement.`,
     ],
   };
 }
@@ -267,16 +267,18 @@ export async function verifyApifyDiscovery(token = "") {
     excludePlaceIds: "array",
     maxResults: "integer",
     language: "string",
-    countryCode: "string",
-    requireEmail: "boolean",
-    skipClosed: "boolean",
+    scrapeContacts: "boolean",
+    includeReviews: "boolean",
+    includePhotos: "boolean",
+    includeLeadScore: "boolean",
+    excludePlaceUrls: "array",
     debugMode: "boolean",
   };
   if (
     a?.id !== discoveryActorId ||
     !p ||
     Object.entries(required).some(([key, type]) => p[key]?.type !== type) ||
-    p.excludePlaceIds.items?.type !== "string"
+    p.excludePlaceIds.items?.type !== "string" || p.excludePlaceUrls.items?.type !== "string"
   )
     throw Error("Schéma officiel Apify modifié : lancement verrouillé.");
   const price = a.currentPricingInfo || a.pricingInfos?.filter((p: any) => !p.startedAt || Date.parse(p.startedAt) <= Date.now()).sort((a: any,b: any) => Date.parse(a.startedAt) - Date.parse(b.startedAt)).at(-1);
@@ -327,8 +329,7 @@ export async function startApifyDiscovery(
   const c = await context(args);
   if (c.planId !== args.planId)
     throw Error("Plan Apify périmé : recalculez les exclusions.");
-  if (c.snapshot.unidentifiedCount || c.snapshot.unresolvedUrls.length)
-    throw Error('Identités historiques non convertibles en exclusions exactes : migration bloquée pour éviter de repayer.');
+
   const verified = c.verified;
   if (args.budget < verified.minimumBudget)
     throw Error("Budget minimal Apify non atteint.");

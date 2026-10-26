@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { emailPlan } from './fixtures/apify-email-plan';
+import { businessPlan } from './fixtures/apify-business-plan';
 
 test("source UI : aucune route de recherche gratuite, plan local et start confirmé séparés", async () => {
   const source = await readFile(new URL("../client/src/App.tsx", import.meta.url), "utf8");
@@ -19,7 +19,7 @@ async function fixture(page: Page, pending: any = null) {
     if (url.pathname === "/api/state") return route.fulfill({ json: state });
     if (url.pathname === "/api/apify/discovery/plan") {
       const args = route.request().postDataJSON(); plans.push(args);
-      return route.fulfill({ json: emailPlan({ ...args, query: { city: args.city, keyword: args.keyword, activity: args.activity, paid: true }, excludedCount: 37, unidentifiedCount: 0, warnings: [] }) });
+      return route.fulfill({ json: businessPlan({ ...args, query: { city: args.city, keyword: args.keyword, activity: args.activity, paid: true }, excludedCount: 37, unidentifiedCount: 0, warnings: [] }) });
     }
     if (url.pathname === "/api/apify/discovery/start") {
       starts.push(route.request().postDataJSON()); state.settings.pending = { runId: "runFixture12345" };
@@ -66,32 +66,41 @@ test("bouton principal → aperçu → confirmation → start → poll → liste
   expect(f.starts).toHaveLength(1); expect(polls).toBe(1); expect(f.free).toHaveLength(0);
 });
 
-test('official email rates and actor are displayed before start with unverified Free reference', async ({ page }) => {
+test('official business rates and actor are displayed before start with unverified Free reference', async ({ page }) => {
   const f = await fixture(page);
   await page.getByRole('button', { name: 'Préparer une recherche Apify', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('benthepythondev/google-maps-email-scraper');
-  await expect(dialog).toContainText('requireEmail=true');
+  await expect(dialog).toContainText('benthepythondev/google-maps-business-scraper');
+  await expect(dialog).toContainText('scrapeContacts=true');
   await expect(dialog).toContainText('non testé pour la délivrabilité');
-  await expect(dialog).toContainText('0.003 USD');
+  await expect(dialog).toContainText('0.0015 USD');
   await expect(dialog).toContainText('0.00005 USD');
-  await expect(dialog).toContainText('0.0028 USD');
+  await expect(dialog).toContainText('0.0014 USD');
+  await expect(dialog).toContainText('Entreprises sans email conservées');
   await expect(dialog).toContainText('FREE');
   await expect(dialog).toContainText('tarif du compte non certifié');
   await expect(dialog.getByRole('link', { name: 'Source officielle des tarifs' })).toHaveAttribute('href', /api.apify.com/);
+  await page.screenshot({ path: "/opt/data/cache/scratch/prospectai-business-plan-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.screenshot({ path: "/opt/data/cache/scratch/prospectai-business-plan-mobile.png", fullPage: true });
   expect(f.starts).toHaveLength(0);
 });
 
-for (const scenario of ['blocked', 'missing pricing', 'missing result rate', 'invalid rate', 'missing fingerprint'] as const) test(`${scenario} prevents any paid POST`, async ({ page }) => {
+for (const scenario of ['blocked', 'missing pricing', 'missing result rate', 'invalid rate', 'missing fingerprint', 'wrong actor', 'wrong actor id', 'missing contacts coverage', 'email-only coverage'] as const) test(`${scenario} prevents any paid POST`, async ({ page }) => {
   const f = await fixture(page);
   await page.route('**/api/apify/discovery/plan', route => {
-    const pricing = emailPlan().pricing;
-    return route.fulfill({ json: emailPlan({ ...route.request().postDataJSON(), excludedCount: 0, unidentifiedCount: 0, warnings: [],
+    const pricing = businessPlan().pricing;
+    return route.fulfill({ json: businessPlan({ ...route.request().postDataJSON(), excludedCount: 0, unidentifiedCount: 0, warnings: [],
       ...(scenario === 'blocked' ? { blocked: true, blockedReason: 'Migration bloquée : URL historique non convertible', unresolvedUrlCount: 1 } : {}),
       ...(scenario === 'missing pricing' ? { pricing: null } : {}),
       ...(scenario === 'missing result rate' ? { pricing: { ...pricing, events: { 'apify-actor-start': { eventPriceUsd: 0.1 } } } } : {}),
       ...(scenario === 'invalid rate' ? { pricing: { ...pricing, events: { ...pricing.events, 'apify-default-dataset-item': { eventPriceUsd: -1 } } } } : {}),
       ...(scenario === 'missing fingerprint' ? { planId: '' } : {}),
+      ...(scenario === 'wrong actor' ? { actor: 'benthepythondev/google-maps-email-scraper' } : {}),
+      ...(scenario === 'wrong actor id' ? { actorId: '4MTxdHfGoKTLDoTrD' } : {}),
+      ...(scenario === 'missing contacts coverage' ? { coverage: { requireEmail: false } } : {}),
+      ...(scenario === 'email-only coverage' ? { coverage: { requireEmail: true, scrapeContacts: true } } : {}),
     }) });
   });
   await page.getByRole('button', { name: 'Préparer une recherche Apify', exact: true }).click();
@@ -159,6 +168,7 @@ test("FINALIZING annonce le coût en cours et le résultat Apify conserve son vr
 
 test("lancement incertain : rafraîchit l’état, verrouille les paiements et ne réessaie pas", async ({ page }) => {
   const f = await fixture(page);
+  await page.clock.install();
   await page.route("**/api/apify/discovery/start", (route) => {
     f.starts.push(route.request().postDataJSON()); f.state.settings.pending = { runId: null, mode: "discovery" };
     return route.fulfill({ status: 422, json: { error: "Lancement incertain ; verrou conservé" } });
@@ -167,6 +177,8 @@ test("lancement incertain : rafraîchit l’état, verrouille les paiements et n
   await page.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true }).click();
   await expect(page.getByRole("button", { name: "Associer le run", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Préparer une recherche Apify", exact: true })).toBeDisabled();
+  await page.clock.fastForward(9000);
+  await expect(page.locator("#search-diagnostic")).toContainText("Lancement incertain ; verrou conservé");
   await expect(page.getByRole("button", { name: "Trouver 25 nouveaux prospects", exact: true })).toHaveCount(0);
   expect(f.free).toHaveLength(0);
   expect(f.starts).toHaveLength(1);
@@ -180,7 +192,7 @@ test("clé absente : navigation Paramètres et fournisseur nommé, sans lancemen
   await expect(dialog.getByRole("button", { name: "Confirmer et lancer la collecte Apify", exact: true })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Configurer Apify dans les Paramètres", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Vos outils, vos limites" })).toBeVisible();
-  await expect(page.locator(".settings-card").filter({ hasText: "Vos outils, vos limites" })).toContainText("benthepythondev/google-maps-email-scraper");
+  await expect(page.locator(".settings-card").filter({ hasText: "Vos outils, vos limites" })).toContainText("benthepythondev/google-maps-business-scraper");
   expect(f.starts).toHaveLength(0);
 });
 
@@ -190,7 +202,7 @@ test("aperçu local annulable, confirmation unique explicite et paramètres exac
   const prepare = page.getByRole("button", { name: "Préparer une recherche Apify", exact: true });
   await prepare.click();
   const dialog = page.getByRole("dialog", { name: "Recherche Apify · vérifier avant de payer" });
-  await expect(dialog).toContainText("benthepythondev/google-maps-email-scraper");
+  await expect(dialog).toContainText("benthepythondev/google-maps-business-scraper");
   await expect(dialog).toContainText("37 identifiants connus"); await expect(dialog).toContainText("0 URL historique(s) non résolue(s)");
   await expect(dialog).toContainText(/même.*0 résultat/);
   await expect(dialog).toContainText(/25 résultats.*pas garantis/);

@@ -161,7 +161,7 @@ test('whole-base cap warns, stop remains accessible while busy and finishes only
 test('compact row has no email actions or warnings; explicit drawer lookup persists before unlocking prompt', async ({ page }) => {
   const api = await fixture(page, [{ id: 'old-failed', name: 'Ancien échec email', phone: '0123456789', email: 'public@atelier-fixture.fr', contactCheck: { status: 'failed', checkedAt: '2026-01-01T00:00:00Z', error: 'Erreur email historique' } }]);
   expect(api.calls).toEqual([]);
-  await expect(page.getByText(/L’Actor EMAIL recherche déjà les emails publiés/)).toBeVisible();
+  await expect(page.getByText(/L’Actor Business recherche les contacts publiés/)).toBeVisible();
   const rows = page.locator('tbody');
   await expect(rows.getByRole('button', { name: /prompt email|Compléter l’email|Corriger l’email|Rechercher l’email/ })).toHaveCount(0);
   await expect(rows.locator('.contact-check-action')).toHaveCount(0);

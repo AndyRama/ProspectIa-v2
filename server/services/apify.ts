@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { db, getSetting, setSetting, claimSetting } from "../db";
 import { billedPlaceIds, validPlaceId } from "./apifyPlan";
-import { discoveryActor, discoveryActorId, legacyDiscoveryActor, legacyDiscoveryActorId, discoveryApi } from './apifyDiscovery';
+import { discoveryActor, discoveryActorId, emailDiscoveryActor, emailDiscoveryActorId, discoveryApi } from './apifyDiscovery';
 import { canonicalMapsUrl } from './identity';
 import { publicContactEmail } from './contactExtractor';
 function expectedActor(pending: any) {
   if (pending.mode === 'discovery') {
-    const allowed = pending.actorSlug === discoveryActor ? discoveryActorId : pending.actorSlug === legacyDiscoveryActor ? legacyDiscoveryActorId : null;
+    const allowed = pending.actorSlug === discoveryActor ? discoveryActorId : pending.actorSlug === emailDiscoveryActor ? emailDiscoveryActorId : null;
     if (!allowed || pending.actorId !== allowed) throw Error('Actor Apify non autorisé.');
     return allowed;
   }
@@ -223,20 +223,24 @@ export async function collectApify(token: string) {
   // Public default-build output contracts: discovery uses snake_case;
   // Compass uses phoneUnformatted/fid. Neither documents websiteUrl as an alias.
   const text = (...values: unknown[]): string => values.find((v): v is string => typeof v === 'string' && !!v.trim()) as string || '';
-  const social = (value: unknown): string => Array.isArray(value) ? text(...value) : '';
+  const social = (value: unknown): string => Array.isArray(value) ? text(...value.flat()) : '';
   const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
   const normalized = rows.map((r: any) => {
-    const emailActor = pending.mode === 'discovery' && pending.actorSlug === discoveryActor;
+    const contactActor = pending.mode === 'discovery';
     const row = pending.mode === 'discovery' ? {
       ...r, title:r.name, placeId:r.place_id, categoryName:r.category, totalScore:r.rating, reviewsCount:r.review_count,
       location:{lat:r.latitude,lng:r.longitude},openingHours:r.opening_hours,imageUrl:r.image_url,imageUrls:r.photos,
       phoneInternational: text(r.phone_international),
-      ...(emailActor ? { url: text(r.google_maps_url), email: text(r.primary_email), permanentlyClosed: r.is_closed === true,
-        instagrams: [r.socials?.instagram], facebooks: [r.socials?.facebook], linkedIns: [r.socials?.linkedin],
-        youtubes: [r.socials?.youtube], tiktoks: [r.socials?.tiktok], twitters: [r.socials?.twitter, r.socials?.x] } : {}),
+      ...(contactActor ? { url: text(r.google_maps_url, r.url), email: text(r.primary_email, r.email), permanentlyClosed: pending.actorSlug === discoveryActor ? r.permanently_closed === true : r.is_closed === true,
+        instagrams: [r.socials?.instagram, ...(Array.isArray(r.instagrams) ? r.instagrams : [])],
+        facebooks: [r.socials?.facebook, ...(Array.isArray(r.facebooks) ? r.facebooks : [])],
+        linkedIns: [r.socials?.linkedin, ...(Array.isArray(r.linkedIns) ? r.linkedIns : [])],
+        youtubes: [r.socials?.youtube, ...(Array.isArray(r.youtubes) ? r.youtubes : [])],
+        tiktoks: [r.socials?.tiktok, ...(Array.isArray(r.tiktoks) ? r.tiktoks : [])],
+        twitters: [r.socials?.twitter, r.socials?.x, ...(Array.isArray(r.twitters) ? r.twitters : [])] } : {}),
     } : { ...r, feature_id: text(r.fid, r.feature_id), phoneInternational: text(r.phoneUnformatted) };
     return {
-      ...row, phone: pending.mode === 'discovery' ? text(row.phoneInternational, row.phone) : text(row.phone, row.phoneInternational),
+      ...row, providerRecord: r, phoneLocal: r.phone, phone: pending.mode === 'discovery' ? text(row.phoneInternational, row.phone) : text(row.phone, row.phoneInternational),
       address: text(row.address), city: text(row.city), website: text(row.website),
       categoryName: text(row.categoryName, ...(Array.isArray(row.categories) ? row.categories : [])),
       location: { lat: numeric(row.location?.lat), lng: numeric(row.location?.lng) },
@@ -255,9 +259,9 @@ export async function collectApify(token: string) {
     .filter((r: any) => r.title && (!pending.placeIds || pending.placeIds.includes(r.placeId)))
     .map((r: any): Prospect => {
       const fields: Record<string, Source> = {};
-      const emailActor = pending.mode === 'discovery' && pending.actorSlug === discoveryActor;
-      const emailObjects = emailActor && Array.isArray(r.emails) ? r.emails.filter((v: any) => v && typeof v === 'object') : [];
-      const emailValues = emailActor ? [r.primary_email, ...emailObjects.map((v: any) => v.email)] : [...(Array.isArray(r.emails) ? r.emails : []), r.email];
+      const contactActor = pending.mode === 'discovery';
+      const emailObjects = Array.isArray(r.emails) ? r.emails.filter((v: any) => v && typeof v === 'object') : [];
+      const emailValues = [r.primary_email, ...(Array.isArray(r.emails) ? r.emails.map((v: any) => typeof v === 'string' ? v : v?.email) : []), r.email];
       const emails = [...new Set(emailValues
         .map(publicContactEmail).filter((email): email is string => !!email))];
       for (const [key, value] of Object.entries({
@@ -272,7 +276,18 @@ export async function collectApify(token: string) {
         categories: Array.isArray(r.categories) && r.categories.length ? JSON.stringify(r.categories) : undefined,
         scrapedAt: text(r.scraped_at),
         phone: r.phone,
+        phoneLocal: r.phoneLocal,
         phoneInternational: r.phoneInternational,
+        phones: Array.isArray(r.phones) ? JSON.stringify(r.phones) : undefined,
+        websitePhones: Array.isArray(r.website_phones) ? JSON.stringify(r.website_phones) : undefined,
+        socials: r.socials && typeof r.socials === 'object' ? JSON.stringify(r.socials) : undefined,
+        hasContactForm: typeof r.has_contact_form === 'boolean' ? r.has_contact_form : undefined,
+        price: r.price,
+        attributes: r.attributes != null ? JSON.stringify(r.attributes) : undefined,
+        reviewDetails: Array.isArray(r.reviews) ? JSON.stringify(r.reviews) : undefined,
+        reviewsDistribution: r.reviews_distribution != null ? JSON.stringify(r.reviews_distribution) : undefined,
+        photos: Array.isArray(r.photos) ? JSON.stringify(r.photos) : undefined,
+        leadScore: r.lead_score,
         website: r.website,
         email: emails[0],
         rating: r.totalScore,
@@ -314,7 +329,7 @@ export async function collectApify(token: string) {
           value: email, source: "Apify · Google Maps", url: r.url,
           collectedAt: new Date().toISOString(), qualification: "Rapporté par Apify · à confirmer",
         };
-        if (emailActor) {
+        if (contactActor) {
           const proof = emailObjects.find((v: any) => publicContactEmail(v.email) === email);
           const key = index ? `email_${index + 1}` : 'email';
           const source = text(proof?.source, r.email_source);
@@ -324,7 +339,9 @@ export async function collectApify(token: string) {
           fields[`${key}_evidence`] = { ...fields[key], value: JSON.stringify(proof || { email, confidence: r.email_confidence ?? null, source: r.email_source ?? null, verified: r.email_verified ?? null }) };
         }
       }
-      if (emailActor) fields.apifyProvenance = {
+      fields.apifyRaw = { value: JSON.stringify(r.providerRecord), source: 'Apify · enregistrement fournisseur intégral', url: r.url,
+        collectedAt: new Date().toISOString(), qualification: 'Valeurs fournies par Apify · disponibilité et exactitude non garanties' };
+      if (contactActor) fields.apifyProvenance = {
         value: JSON.stringify({ actor: pending.actorSlug, actorId: pending.actorId, runId: pending.runId,
           build: pending.build ?? null, schemaFingerprint: pending.schemaFingerprint ?? null,
           input: pending.input ?? null, pricing: pending.pricing ?? null }),

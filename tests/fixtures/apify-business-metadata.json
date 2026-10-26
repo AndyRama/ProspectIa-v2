@@ -1,0 +1,293 @@
+{
+  "data": {
+    "id": "uU8ybh0dgvI68Q3o2",
+    "userId": "OrNCCV6o1j55LyOTZ",
+    "name": "google-maps-business-scraper",
+    "username": "benthepythondev",
+    "description": "Returns Google Maps places for any search and location: name, phone, website, address parts, coordinates, rating, review count, opening hours, categories, place id and a lead score. Reads past Google's 200-place list by searching the map in tiles. No browser, no login; filters cost nothing extra.",
+    "isPublic": true,
+    "createdAt": "2025-11-13T17:33:06.715Z",
+    "modifiedAt": "2026-10-26T08:29:38.382Z",
+    "taggedBuilds": {
+      "latest": {
+        "buildId": "EW6FLMZcRcWfAKzvH",
+        "finishedAt": "2026-10-26T08:29:24.199Z",
+        "buildNumberInt": 10000034,
+        "buildNumber": "1.0.34"
+      },
+      "review-exclusions": {
+        "buildId": "8e9gSAbennieR5Kzu",
+        "finishedAt": "2026-09-09T18:52:29.377Z",
+        "buildNumberInt": 10000017,
+        "buildNumber": "1.0.17"
+      },
+      "review-quality": {
+        "buildId": "HUj9q7PIdJ7O82tLq",
+        "finishedAt": "2026-09-09T21:27:58.369Z",
+        "buildNumberInt": 10000019,
+        "buildNumber": "1.0.19"
+      },
+      "scale-canary": {
+        "buildId": "GGqEY2jaxGUhCmqBj",
+        "finishedAt": "2026-09-10T17:59:09.531Z",
+        "buildNumberInt": 10000020,
+        "buildNumber": "1.0.20"
+      },
+      "cost-canary": {
+        "buildId": "XlqnwY6u8PCFNJSBz",
+        "finishedAt": "2026-09-11T03:58:58.343Z",
+        "buildNumberInt": 10000021,
+        "buildNumber": "1.0.21"
+      },
+      "canary": {
+        "buildId": "U0Bi6oN1Xm3RsyDVN",
+        "finishedAt": "2026-10-04T17:46:27.315Z",
+        "buildNumberInt": 10000032,
+        "buildNumber": "1.0.32"
+      },
+      "beta": {
+        "buildId": "EW6FLMZcRcWfAKzvH",
+        "finishedAt": "2026-10-26T08:29:24.199Z",
+        "buildNumberInt": 10000034,
+        "buildNumber": "1.0.34"
+      }
+    },
+    "stats": {
+      "totalBuilds": 34,
+      "totalRuns": 1367,
+      "totalUsers": 187,
+      "totalUsers7Days": 7,
+      "totalUsers30Days": 8,
+      "totalUsers90Days": 55,
+      "lastRunStartedAt": "2026-10-26T09:28:38.846Z",
+      "actorReviewCount": 1,
+      "actorReviewRating": 5,
+      "bookmarkCount": 1,
+      "publicActorRunStats30Days": {
+        "ABORTED": 1,
+        "FAILED": 1,
+        "SUCCEEDED": 64,
+        "TIMED-OUT": 0,
+        "TOTAL": 66
+      }
+    },
+    "versions": [
+      {
+        "versionNumber": "1.0",
+        "sourceType": "SOURCE_FILES",
+        "buildTag": "beta"
+      }
+    ],
+    "defaultRunOptions": {
+      "build": "latest",
+      "timeoutSecs": 3600,
+      "memoryMbytes": 512
+    },
+    "exampleRunInput": {
+      "body": "{\"mode\": \"search\", \"query\": \"coffee shops\", \"location\": \"Berlin, Germany\", \"maxResults\": 3, \"includePhotos\": false, \"includeReviews\": false, \"includeLeadScore\": true}",
+      "contentType": "application/json; charset=utf-8"
+    },
+    "categories": [
+      "LEAD_GENERATION",
+      "SEO_TOOLS",
+      "OTHER"
+    ],
+    "isDeprecated": false,
+    "title": "Google Maps Scraper - Business Contacts & Ratings",
+    "pictureUrl": "https://apify-image-uploads-prod.s3.us-east-1.amazonaws.com/OrNCCV6o1j55LyOTZ-actor-uU8ybh0dgvI68Q3o2-cgcS7cfkks-google-maps-business-scraper.png",
+    "seoTitle": "Google Maps Scraper - Business Contacts & Ratings",
+    "seoDescription": "Export Google Maps businesses with phone, website, address, rating, review count, hours and place id to CSV or JSON. Thousands of places per search, no login.",
+    "pricingInfos": [
+      {
+        "pricePerUnitUsd": 0.01,
+        "unitName": "result",
+        "pricingModel": "PRICE_PER_DATASET_ITEM",
+        "isPriceChangeNotificationSuppressed": false,
+        "startedAt": "2025-11-14T10:15:34.568Z",
+        "createdAt": "2025-11-14T10:15:34.987Z",
+        "apifyMarginPercentage": 0.2
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "createdAt": "2026-02-26T08:01:12.213Z",
+        "startedAt": "2026-02-26T08:01:12.213Z",
+        "apifyMarginPercentage": 0.2,
+        "isPriceChangeNotificationSuppressed": true,
+        "reasonForChange": "Migration from Pay Per Result to Pay Per Event with apify-default-dataset-item event",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-default-dataset-item": {
+              "eventTitle": "result",
+              "eventDescription": "Single result in the default dataset.",
+              "isPrimaryEvent": true,
+              "eventPriceUsd": 0.01
+            }
+          }
+        },
+        "forceContainsSignificantPriceChange": false
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "startedAt": "2026-06-12T12:58:21.000Z",
+        "isPriceChangeNotificationSuppressed": false,
+        "reasonForChange": "Adding a small actor start fee ($0.00005 per GB) to standardize billing across all our actors. The result price remains unchanged.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-default-dataset-item": {
+              "eventTitle": "result",
+              "eventDescription": "Single result in the default dataset.",
+              "isPrimaryEvent": true,
+              "eventPriceUsd": 0.01
+            },
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventPriceUsd": 5e-05
+            }
+          }
+        },
+        "createdAt": "2026-05-28T12:58:22.592Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutFutureChangeAt": "2026-05-28T12:58:43.139Z"
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "startedAt": "2026-08-02T09:42:00.000Z",
+        "isPriceChangeNotificationSuppressed": false,
+        "reasonForChange": "Add progressive Apify plan discounts while preserving every existing Free-tier event price.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-default-dataset-item": {
+              "eventTitle": "result",
+              "eventDescription": "Single result in the default dataset.",
+              "isPrimaryEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.01
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.009
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0085
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.008
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0075
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.007
+                }
+              }
+            },
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 5e-05
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 4.5e-05
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 4e-05
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 3.75e-05
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 3.5e-05
+                }
+              }
+            }
+          }
+        },
+        "createdAt": "2026-07-18T09:42:56.082Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutFutureChangeAt": "2026-07-18T09:43:16.252Z",
+        "notifiedAboutChangeAt": "2026-08-05T15:06:22.394Z"
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "startedAt": "2026-10-19T00:00:00.000Z",
+        "reasonForChange": "The Actor no longer runs a browser, so a place costs much less to read. The price per place falls from $0.01 to $0.0015 on the Free plan.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 5e-05
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 4.75e-05
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 4.5e-05
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 4.25e-05
+                }
+              }
+            },
+            "apify-default-dataset-item": {
+              "eventTitle": "Place",
+              "eventDescription": "One Google Maps place saved to the dataset, with contact details, address parts, rating, review count, opening hours and attributes. Filters, details and reviews cost nothing extra.",
+              "isOneTimeEvent": false,
+              "isPrimaryEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.0015
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.0014
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0013
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.0012
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0012
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.0012
+                }
+              }
+            }
+          }
+        },
+        "createdAt": "2026-10-04T17:11:13.804Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutFutureChangeAt": "2026-10-04T17:11:34.977Z",
+        "notifiedAboutChangeAt": "2026-10-19T00:00:32.290Z"
+      }
+    ],
+    "notice": "NONE",
+    "isCritical": false,
+    "isGeneric": false,
+    "hasNoDataset": false,
+    "isSourceCodeHidden": true,
+    "standbyUrl": null,
+    "actorPermissionLevel": "LIMITED_PERMISSIONS",
+    "readmeSummary": "## Google Maps Scraper\n\nA scraper that extracts Google Maps business listings at scale by issuing the same data requests the Google Maps web client uses (no headless browser). It performs map-tile searches and deduplicates results across tiles and queries, optionally constraining searches to geographic boundaries from OpenStreetMap. For each found place it returns a single record containing business identity and categories, parsed address components, geographic coordinates and timezone, contact details (phone and website), reputation metrics (rating, review count, lead score, star-distribution), opening hours, structured \"About\" attributes (accessibility, payments, parking, service options), stable identifiers and map links, media references (main photo and photo counts, optional photo links), and optional full details including textual price ranges and up to eight reviews with author, rating, text and date. Additional optional processing reads a place’s website pages to extract emails, social profiles and detect contact forms. Designed for high-throughput searches (thousands of places per search) with per-place detailed fetches available on demand.\n\n## Use cases\n\n- Lead lists: compile lists of local businesses with phone numbers and websites, filterable by ratings or missing website.  \n- Market research: measure competitor counts, locations, ratings and price ranges across areas.  \n- Directory building: assemble names, structured addresses, hours, categories and stable place identifiers for directories.  \n- Monitoring: detect new businesses in an area or track rating and review-count changes over time.",
+    "deploymentKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCkXVf0kdLq/OIAjAphlf7uBKM+kCPqXjOpwlPPK45g8bagc/Lz818Rbd/lPiB2k5RXthgGUMULOvp7as/+5R2OJK76pyD8wIbrBjB/9OZ/HIfNIsfmSYmjddUma+mIQkXN6XeJ/cbjAGA7ZZitOUS5I28EfQjlF+IeMBFyGHr2nBA0tIaph5Ci4KVIwbPQBlC+RbesLq09LIhmaO5wzueqk84JGtN/Kc2XVg8HlyS6qeMCae8iBXt6ac6Mqae3/elsctkpaoP58SrJ+cKvkVjhYxwvI40phVcs7vNhbLDBDoEWnokT3EYSu+A4GKFCE9gFOM7CGsNFHWC6O6GUmsM1 \n"
+  }
+}

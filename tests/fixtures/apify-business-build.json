@@ -1,0 +1,612 @@
+{
+  "data": {
+    "id": "EW6FLMZcRcWfAKzvH",
+    "actId": "uU8ybh0dgvI68Q3o2",
+    "userId": "OrNCCV6o1j55LyOTZ",
+    "startedAt": "2026-10-26T08:29:21.748Z",
+    "finishedAt": "2026-10-26T08:29:24.199Z",
+    "status": "SUCCEEDED",
+    "meta": {
+      "origin": "CLI"
+    },
+    "stats": {
+      "durationMillis": 2381,
+      "runTimeSecs": 2.381,
+      "computeUnits": 0.0026455555555555555,
+      "imageSizeBytes": 357726720
+    },
+    "options": {
+      "useCache": true,
+      "betaPackages": false,
+      "memoryMbytes": 4096,
+      "diskMbytes": 8192
+    },
+    "exitCode": 0,
+    "inputSchema": "{\n  \"title\": \"Google Maps Scraper input\",\n  \"type\": \"object\",\n  \"schemaVersion\": 1,\n  \"properties\": {\n    \"query\": {\n      \"title\": \"Search query\",\n      \"type\": \"string\",\n      \"description\": \"What to search for on Google Maps, as you would type it there: a kind of business (\\\"dentist\\\", \\\"coffee shop\\\"), a brand or a business name. Searched in the location below.\",\n      \"prefill\": \"restaurants\",\n      \"editor\": \"textfield\"\n    },\n    \"location\": {\n      \"title\": \"Location\",\n      \"type\": \"string\",\n      \"description\": \"City, district, state or country to search in, for example \\\"San Francisco, CA\\\", \\\"Mitte, Berlin\\\" or \\\"Texas\\\". With a location the Actor can read past Google's list of about 200 places by searching the map of that location piece by piece.\",\n      \"prefill\": \"San Francisco, CA\",\n      \"editor\": \"textfield\"\n    },\n    \"queries\": {\n      \"title\": \"More search queries\",\n      \"type\": \"array\",\n      \"description\": \"Several search queries for one run. Each query is searched in each location, and a place found by two searches is saved once.\",\n      \"editor\": \"stringList\"\n    },\n    \"locations\": {\n      \"title\": \"More locations\",\n      \"type\": \"array\",\n      \"description\": \"Several locations for one run, for example a list of cities. Each query is searched in each of them.\",\n      \"editor\": \"stringList\"\n    },\n    \"maxResults\": {\n      \"title\": \"Maximum places per search\",\n      \"type\": \"integer\",\n      \"description\": \"Places to save for each search (each query in each location), up to 20,000. One Google list holds about 120 to 240 places; for more the Actor searches the map of the location in tiles. With filters a search reads at most 1,000 places, or ten places per place asked for here if that is more.\",\n      \"default\": 10,\n      \"minimum\": 1,\n      \"maximum\": 20000,\n      \"editor\": \"number\"\n    },\n    \"geoSplit\": {\n      \"title\": \"Split the map into tiles (geoSplit)\",\n      \"type\": \"boolean\",\n      \"description\": \"On: when a search asks for more places than Google's one list holds (about 120 to 240), the location's area is cut into a grid of map tiles, each tile is searched, crowded tiles are cut again, and every place is saved once (by its place id). Off: only Google's one list is read.\",\n      \"default\": true,\n      \"editor\": \"checkbox\"\n    },\n    \"startUrls\": {\n      \"title\": \"Place links, place ids or search links\",\n      \"type\": \"array\",\n      \"description\": \"Google Maps place links, place ids (ChIJ…), feature ids (0x…:0x…) or Google Maps search links. Each place is read from its own page, every link is read regardless of the limit above. A search link is run as a search; a link with a map position (…/@37.76,-122.41,15z) searches that part of the map.\",\n      \"editor\": \"stringList\"\n    },\n    \"mode\": {\n      \"title\": \"Mode\",\n      \"type\": \"string\",\n      \"description\": \"\\\"search\\\" runs the queries and reads the links. \\\"direct_urls\\\" reads only the links and ignores the query fields.\",\n      \"enum\": [\n        \"search\",\n        \"direct_urls\"\n      ],\n      \"enumTitles\": [\n        \"Search and links\",\n        \"Links only\"\n      ],\n      \"default\": \"search\",\n      \"editor\": \"select\"\n    },\n    \"minRating\": {\n      \"title\": \"Minimum rating\",\n      \"type\": \"number\",\n      \"description\": \"Save only places with at least this star rating (1.0 to 5.0). Places without a rating are left out. Filtered places are not charged.\",\n      \"minimum\": 1,\n      \"maximum\": 5,\n      \"editor\": \"number\",\n      \"nullable\": true\n    },\n    \"minReviews\": {\n      \"title\": \"Minimum number of reviews\",\n      \"type\": \"integer\",\n      \"description\": \"Save only places with at least this many reviews. Filtered places are not charged.\",\n      \"minimum\": 0,\n      \"editor\": \"number\",\n      \"nullable\": true\n    },\n    \"websiteFilter\": {\n      \"title\": \"Website filter\",\n      \"type\": \"string\",\n      \"description\": \"\\\"has_website\\\" saves only places with a website, \\\"no_website\\\" only places without one (prospects for web design and local marketing). Filtered places are not charged.\",\n      \"enum\": [\n        \"any\",\n        \"has_website\",\n        \"no_website\"\n      ],\n      \"enumTitles\": [\n        \"Any\",\n        \"With a website\",\n        \"Without a website\"\n      ],\n      \"default\": \"any\",\n      \"editor\": \"select\"\n    },\n    \"skipClosedPlaces\": {\n      \"title\": \"Skip permanently closed places\",\n      \"type\": \"boolean\",\n      \"description\": \"Leave out places Google marks as permanently closed. `skipClosed` is read as well.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    },\n    \"requireWebsite\": {\n      \"title\": \"Only places with a website\",\n      \"type\": \"boolean\",\n      \"description\": \"Save only places that list a website, the same as websiteFilter \\\"has_website\\\". Filtered places are not charged.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    },\n    \"includeReviews\": {\n      \"title\": \"Full details and reviews\",\n      \"type\": \"boolean\",\n      \"description\": \"Reads each place's own page as well: price range, every group of Google's \\\"About\\\" tab, the number of 1 to 5 star reviews and the reviews Google shows a visitor on the overview (eight at most, with author, rating, text and date). One more request per place, about four places a second. Without it a row has what Google's result list carried.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    },\n    \"maxReviews\": {\n      \"title\": \"Maximum reviews per place\",\n      \"type\": \"integer\",\n      \"description\": \"Reviews to keep per place when reviews are included. Google shows a visitor eight at most.\",\n      \"default\": 10,\n      \"minimum\": 1,\n      \"maximum\": 100,\n      \"editor\": \"number\"\n    },\n    \"includePhotos\": {\n      \"title\": \"Include photo links\",\n      \"type\": \"boolean\",\n      \"description\": \"Adds `photos`: the photo links in Google's record of the place, between 1 and about 20. The main photo is always in `image_url`.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    },\n    \"includeLeadScore\": {\n      \"title\": \"Include lead score\",\n      \"type\": \"boolean\",\n      \"description\": \"Adds a score from 0 to 100 computed from the row itself: website and phone present, rating, number of reviews, opening hours, photos.\",\n      \"default\": true,\n      \"editor\": \"checkbox\"\n    },\n    \"scrapeContacts\": {\n      \"title\": \"Emails, social links and contact form from the website\",\n      \"type\": \"boolean\",\n      \"description\": \"Reads each place's website (home, contact, Kontakt, Impressum and about pages) and adds primary_email, emails, socials and has_contact_form to the row. Included in the place price, no extra event. Adds a few seconds per place; places without a website get empty fields.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    },\n    \"language\": {\n      \"title\": \"Language\",\n      \"type\": \"string\",\n      \"description\": \"Language of categories, opening hours and descriptions, as a language code: en, de, fr, es, it, pt-BR, ja.\",\n      \"default\": \"en\",\n      \"editor\": \"textfield\"\n    },\n    \"countryCode\": {\n      \"title\": \"Country of the visitor\",\n      \"type\": \"string\",\n      \"description\": \"Two-letter country code Google is told the visitor is in. It decides the format of addresses and phone numbers: with \\\"us\\\" a US phone is \\\"(415) 772-9060\\\", a German one \\\"+49 30 81455310\\\"; with \\\"de\\\" the German one is \\\"030 81455310\\\".\",\n      \"default\": \"us\",\n      \"editor\": \"textfield\"\n    },\n    \"onlyNew\": {\n      \"title\": \"Only places not delivered before\",\n      \"type\": \"boolean\",\n      \"description\": \"Skips every place an earlier run with the same monitor name saved. Use it to continue a large area over several runs, or on a schedule to get businesses that appear after a first complete run. Skipped places are not charged.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    },\n    \"monitorId\": {\n      \"title\": \"Monitor name\",\n      \"type\": \"string\",\n      \"description\": \"Name of the memory used by \\\"only places not delivered before\\\". Runs with the same name share one memory.\",\n      \"editor\": \"textfield\"\n    },\n    \"excludePlaceUrls\": {\n      \"title\": \"Exclude place links\",\n      \"type\": \"array\",\n      \"editor\": \"stringList\",\n      \"description\": \"Skip these places, given as long Google Maps place links. Excluded places are not saved or charged.\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"excludePlaceIds\": {\n      \"title\": \"Exclude place ids\",\n      \"type\": \"array\",\n      \"editor\": \"stringList\",\n      \"description\": \"Skip these places, given as place ids (ChIJ…), numeric CIDs or feature ids (0x…:0x…). Excluded places are not saved or charged.\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"debugMode\": {\n      \"title\": \"Debug log\",\n      \"type\": \"boolean\",\n      \"description\": \"Logs every request with its size and time. For support.\",\n      \"default\": false,\n      \"editor\": \"checkbox\"\n    }\n  }\n}",
+    "readme": "# 📍 Google Maps Scraper: Business Contacts, Ratings and Leads\n\nReturns the places Google Maps shows for a search: name, phone, website, address in parts, coordinates, rating, number of reviews, opening hours, categories, place id and a lead score. Give it \"dentist\" and \"Austin, TX\" and you get the dentists of Austin, thousands if you want them, without a Google login or API key. It reads past the roughly 200 places one Google list holds and keeps to the boundary of the city, district or state you name.\n\n**Price:** until October 18, 2026 $10.00 per 1,000 places on the Apify Free plan; from October 19 $1.50 per 1,000 ($1.20 from Gold up). Filters, full details and reviews cost nothing extra, and a place that a filter drops is not charged. Export to JSON, CSV or Excel, run on a schedule, call via API, or connect to Make, Zapier or n8n.\n\n## 🔎 What is the Google Maps Scraper?\n\nIt calls the data requests Google Maps' own pages make, so no browser runs. A run of ten places takes about five seconds at 512 MB of memory; 260 dentists inside the city limits of Pasadena took 27 seconds.\n\nOne Google list ends after about 120 to 240 places. For more, the Actor searches the map of your location tile by tile, cuts every crowded tile into four and saves each place once. A map tile is a rectangle and a city is not, so the location is also looked up in OpenStreetMap: tiles outside the boundary are not searched and places outside it are not saved. A search for restaurants in Los Angeles returned 4,000 places in about two minutes from our own server, none of them from Pasadena, Glendale or Long Beach next door; 16 places on the city line carry a neighbouring town in their address.\n\n### What data does it extract?\n\n- **Business:** name, main category and all categories, description, price range, whether Google marks it permanently closed\n- **Contact:** phone in local and international format, website and its domain\n- **Address:** full address, street, neighborhood, city, state, postal code, country code, plus code\n- **Position:** latitude, longitude, time zone\n- **Reputation:** rating, number of reviews, lead score from 0 to 100\n- **Opening hours:** one entry per weekday\n- **\"About\" tab:** service options, accessibility, payments, parking and the other groups Google lists\n- **Identifiers:** place id, CID, feature id, Knowledge Graph id, Google Maps link\n- **Media:** main photo, number of photos, photo links on request\n- **With full details:** the number of 1, 2, 3, 4 and 5 star reviews and up to eight reviews with author, rating, text and date\n\n### What users of Google Maps scrapers report, and what this Actor does\n\nThe issue pages of the five most used Google Maps Actors on Apify were read on October 4, 2026:\n\n| Reported there | Here |\n|---|---|\n| \"Wrong city\", \"results outside of my search\", \"gave Queensland and it is doing all of Australia\" | Places are kept to the boundary OpenStreetMap has for your location. Every row also carries city, state, postal code and country code |\n| \"ReviewCount always zero\", \"review count is not included\" | Google sends some answers without review counts. The Actor notices and asks again; in a test run of 260 places every rated place had its count |\n| \"Number of results less than expected\", \"the number of results is 500\" | Up to 20,000 places per search. The status message says whether Google has more or the map is read to its end |\n| \"Run consumed full credit balance\", \"kept running with max items set\", charges for filters | A limit is exact, a place is saved once, a run stops at its maximum charge, and filtered places cost nothing |\n| \"Can I run multiple cities in one run?\" | `queries` and `locations` are lists; each query is searched in each location |\n| \"How can I exclude previous scrapings?\" | `onlyNew` with a monitor name, or `excludePlaceIds` |\n| \"Excel file has only true and false statements\" | Attributes are lists of what the place has, opening hours one entry per weekday |\n\n## ⬇️ Input\n\n| Field | Type | Default | What it does |\n|---|---|---|---|\n| `query` | string | | What to search for: a kind of business, a brand or a business name |\n| `location` | string | | City, district, state or country to search in |\n| `queries` | array | | Several search queries for one run |\n| `locations` | array | | Several locations; each query is searched in each of them |\n| `maxResults` | integer | 10 | Places to save per search, up to 20,000 |\n| `geoSplit` | boolean | true | Cut the location into a grid of map tiles when Google's one list is not enough; off reads that one list only |\n| `startUrls` | array | | Place links, place ids, feature ids or Google Maps search links |\n| `mode` | string | `search` | `direct_urls` reads only the links and ignores the query fields |\n| `minRating` | number | | Only places with at least this rating |\n| `minReviews` | integer | | Only places with at least this many reviews |\n| `websiteFilter` | string | `any` | `has_website` or `no_website` |\n| `skipClosedPlaces` | boolean | false | Leave out permanently closed places (`skipClosed` is read too) |\n| `requireWebsite` | boolean | false | Only places with a website (same as `websiteFilter: has_website`) |\n| `includeReviews` | boolean | false | Full details: price range, every \"About\" group, star distribution, up to eight reviews. One more request per place |\n| `maxReviews` | integer | 10 | Reviews to keep per place; Google shows a visitor eight at most |\n| `includePhotos` | boolean | false | Adds `photos`, the photo links in Google's record |\n| `includeLeadScore` | boolean | true | Adds `lead_score` |\n| `scrapeContacts` | boolean | false | Reads each place's website and adds `primary_email`, `emails`, `socials` and `has_contact_form`, at no extra charge |\n| `language` | string | `en` | Language of categories, hours and descriptions |\n| `countryCode` | string | `us` | Country Google is told the visitor is in; decides phone and address format |\n| `onlyNew` | boolean | false | Skip every place an earlier run with the same monitor name saved |\n| `monitorId` | string | | Name of that memory |\n| `excludePlaceUrls` | array | | Places to skip, as long Google Maps links |\n| `excludePlaceIds` | array | | Places to skip, as place ids, CIDs or feature ids |\n| `debugMode` | boolean | false | Logs every request with its size and time |\n\n### Example input\n\nAll dentists of a city:\n\n```json\n{\n  \"query\": \"dentist\",\n  \"location\": \"Austin, TX\",\n  \"maxResults\": 2000\n}\n```\n\nProspects for a web agency: well-reviewed businesses without a website, in several cities:\n\n```json\n{\n  \"queries\": [\"plumber\", \"electrician\"],\n  \"locations\": [\"Denver, CO\", \"Boulder, CO\"],\n  \"websiteFilter\": \"no_website\",\n  \"minRating\": 4.5,\n  \"minReviews\": 50,\n  \"maxResults\": 200\n}\n```\n\nKnown places by link or id, with full details and reviews:\n\n```json\n{\n  \"mode\": \"direct_urls\",\n  \"startUrls\": [\n    \"https://www.google.com/maps/place/Wayfare+Tavern/data=!4m7!3m6!1s0x8085808a62f79413:0x3754c526852815b7!8m2!3d37.7921097!4d-122.3999688!16s%2Fg%2F1tzgpfsc!19sChIJE5T3YoqAhYARtxUohSbFVDc\",\n    \"ChIJLeYyO_CAhYAR6j9XsEIm3GI\"\n  ],\n  \"includeReviews\": true\n}\n```\n\nGerman results in German format:\n\n```json\n{\n  \"query\": \"Zahnarzt\",\n  \"location\": \"Leipzig\",\n  \"language\": \"de\",\n  \"countryCode\": \"de\",\n  \"maxResults\": 300\n}\n```\n\nInput names of the most used Google Maps Actor are read as well: `searchStringsArray`, `locationQuery`, `maxCrawledPlacesPerSearch`, `placeIds`, `placeMinimumStars`, `website`, `scrapePlaceDetailPage` and `startUrls` as a list of `{\"url\": …}`.\n\nTwo tested examples you can copy into your account: [Austin coffee shops](https://apify.com/benthepythondev/google-maps-business-scraper/examples/austin-coffee-shops-sample) and [Berlin coffee shops without the places you already have](https://apify.com/benthepythondev/google-maps-business-scraper/examples/berlin-coffee-leads-exclude-known-places).\n\n## ⬆️ Output\n\nOne row per place (from a run of October 4, 2026; the attributes are shortened here):\n\n```json\n{\n  \"name\": \"Piccolo Forno\",\n  \"rating\": 4.7,\n  \"review_count\": 2433,\n  \"address\": \"725 Columbus Ave, San Francisco, CA 94133\",\n  \"phone\": \"(415) 757-0087\",\n  \"website\": \"https://piccolo-forno-sf.com/\",\n  \"categories\": [\"Italian restaurant\"],\n  \"has_hours\": true,\n  \"plus_code\": \"RH2Q+G5 San Francisco, CA\",\n  \"url\": \"https://www.google.com/maps/place/Piccolo+Forno/data=!4m7!3m6!1s0x808580f03b32e62d:0x62dc2642b0573fea!8m2!3d37.801362999999995!4d-122.412033!16s%2Fg%2F11bwny13gr!19sChIJLeYyO_CAhYAR6j9XsEIm3GI\",\n  \"lead_score\": 90,\n  \"place_id\": \"ChIJLeYyO_CAhYAR6j9XsEIm3GI\",\n  \"cid\": \"7123610778461487082\",\n  \"feature_id\": \"0x808580f03b32e62d:0x62dc2642b0573fea\",\n  \"kgmid\": \"/g/11bwny13gr\",\n  \"category\": \"Italian restaurant\",\n  \"description\": \"Casual neighborhood trattoria with Italian classics & espresso in colorful, contemporary quarters.\",\n  \"price\": null,\n  \"latitude\": 37.801362999999995,\n  \"longitude\": -122.412033,\n  \"neighborhood\": \"Russian Hill\",\n  \"street\": \"725 Columbus Ave\",\n  \"city\": \"San Francisco\",\n  \"state\": \"California\",\n  \"postal_code\": \"94133\",\n  \"country_code\": \"US\",\n  \"phone_international\": \"+1 415-757-0087\",\n  \"domain\": \"piccolo-forno-sf.com\",\n  \"opening_hours\": [\n    {\"day\": \"Monday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Tuesday\", \"hours\": \"Closed\"},\n    {\"day\": \"Wednesday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Thursday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Friday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Saturday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Sunday\", \"hours\": \"11:45 AM–10 PM\"}\n  ],\n  \"timezone\": \"America/Los_Angeles\",\n  \"permanently_closed\": false,\n  \"image_url\": \"https://lh3.googleusercontent.com/grass-cs/ACvplmOaCSW_8kML8cYCAeMcJaaqLelPtrlLcRushwRCby-qGUNeiOkVXxIdYoOnCeg-rDIO3OxP9G1iWM-qiA8YfKrWyKFvrAWirwpXv3DnmBc3lxwOrokGmMrO-A93Rc5wDF9UDv371Q=w1200-h900-k-no\",\n  \"photo_count\": 1877,\n  \"attributes\": {\n    \"Accessibility\": [\"Wheelchair accessible entrance\", \"Wheelchair accessible restroom\", \"Wheelchair accessible seating\"]\n  },\n  \"query\": \"restaurants San Francisco, CA\",\n  \"rank\": 1,\n  \"scraped_at\": \"2026-10-04T16:49:33.005772+00:00\"\n}\n```\n\nThis row came without full details, so `price` is empty and `attributes` has one group; with `includeReviews` a restaurant has its price range and 12 to 14 groups. `rank` is the position in Google's own list; places found on map tiles have none. With `includeReviews` a row also has `reviews_distribution` (`{\"1\": 60, \"2\": 34, \"3\": 94, \"4\": 303, \"5\": 1942}`; in a test of 60 places the five numbers added up to `review_count` every time) and `reviews`, each with `author`, `author_url`, `rating`, `text`, `language`, `published_at`, `age` and `url`. With `includePhotos` it has `photos`. With `scrapeContacts` it has `primary_email`, `emails` (each with `email`, `confidence` and the page `source`), `socials` (`facebook`, `instagram`, `linkedin` and others the site links), `has_contact_form` (a form with a message box or an email field on one of the pages read) and `website_pages_read`. The run also writes a `SUMMARY` record: places saved and read per search, how each search ended, and whether a boundary was applied.\n\n## 💰 What a run costs\n\n| Apify plan | Per 1,000 places until October 18, 2026 | From October 19, 2026 |\n|---|---|---|\n| Free | $10.00 | $1.50 |\n| Bronze | $9.00 | $1.40 |\n| Silver | $8.50 | $1.30 |\n| Gold | $8.00 | $1.20 |\n| Platinum | $7.50 | $1.20 |\n| Diamond | $7.00 | $1.20 |\n\nApify's standard start event ($0.00005) is the only other charge. Full details, reviews, photos, website contacts (emails, social links, contact form), filters and the boundary are included. Not charged: a place a filter or an exclusion drops, a place outside the boundary, a place another search of the run saved, a place already delivered in only-new mode, a link without a place behind it, and a search without results.\n\n## ⏱️ Measured on Apify (October 4, 2026)\n\n| Run | Places | Time |\n|---|---|---|\n| Sample input (one search) | 10 | 5 s |\n| Dentists in Pasadena, CA: Google's list plus map tiles, kept to the city boundary | 260 | 27 s |\n| Bakeries in Boise, ID with full details: price range, \"About\" groups, star distribution, reviews | 60 | 19 s |\n| Plumbers in Denver without a website, with 4.5 stars and 50 reviews or more: all 256 plumbers inside the city were read | 4 | 35 s |\n| A place link, a place id, a link by name and a search link, with full details | 6 | 8 s |\n\nA run of 200 coffee shops with full details that was aborted after 20 seconds and resurrected ended with 200 rows, none of them twice. All at 512 MB; the largest run used 239 MB.\n\n## 🗺️ How it reads a whole city\n\n1. Google's own list for \"query location\" comes first: the most relevant places, up to about 200, each with its `rank`.\n2. If you asked for more, the map of the location is cut into four tiles and the same search is run in each.\n3. A tile that returns 100 or more places inside itself is cut into four again, down to tiles about 300 metres high.\n4. A place is saved once, however many tiles return it.\n\nThe status message says how each search ended: at your limit with more places on the map, or with the map read to its end.\n\n## 🔔 Only new places\n\nTurn on `onlyNew` and give the run a `monitorId`. Every place a run saves is remembered under that name, and later runs skip it. Two uses: read a large area in several runs, each continuing where the last one stopped; or, after one run that read a search to its end, put it on a schedule and get the businesses that appear later. The memory is a key-value store named `google-maps-monitor` in your own account; delete a record there to start over.\n\n## 🤖 For AI agents\n\nSmallest useful call:\n\n```json\n{\"query\": \"coffee shop\", \"location\": \"Seattle, WA\", \"maxResults\": 20}\n```\n\nEach row is one place with `name`, `address`, `phone`, `website`, `rating`, `review_count`, `category`, `latitude`, `longitude`, `opening_hours` and `place_id`. `queries`, `locations` and `startUrls` take several entries. A search without results returns no rows; the status message and the `SUMMARY` record say why. No credentials are needed.\n\n## 💡 Use cases\n\n- 📇 **Lead lists:** every business of a kind in a city, with phone and website, filtered by rating or by a missing website.\n- 🗺️ **Market research:** how many competitors, where, with what ratings and price ranges.\n- 🏪 **Directory building:** names, addresses, hours and categories with stable place ids for later updates.\n- 🔁 **Monitoring:** new businesses in an area on a schedule, or the rating and review count of your own locations.\n\n## ⚠️ Limits, stated plainly\n\n- **Google decides what a search finds.** The Actor reads what Google Maps shows a visitor. A business Google does not list for your words is not found, and very small tiles are not cut further, so the densest blocks of a large city can hold a few more places than the run returns.\n- **Review lists are not available.** Google shows a visitor up to eight reviews per place and asks for a signed-in account for the rest. `includeReviews` returns those eight and the exact star distribution.\n- **Without full details some fields depend on Google.** Google gives some visitors a shorter record: contact data, rating and review count are there, but no price range, one \"About\" group and one photo. A row without full details has what the result list carried. With `includeReviews` the Actor reads each place's own page through a visitor that gets the complete record.\n- **Emails only from the business's own website.** Google Maps does not publish them. With `scrapeContacts` the Actor reads the home, contact, Kontakt, Impressum and about pages of each place's website; a site that publishes no address gets none, and nothing is guessed. A place without a website gets empty contact fields.\n- **The boundary is OpenStreetMap's, simplified to about 100 metres.** A place on the city line can fall on either side.\n- **A boundary needs a place name.** A postcode, a street or \"near Times Square\" has no boundary in OpenStreetMap; the map view Google shows for it is searched instead and can include the surroundings. When OpenStreetMap and Google read a name as two different towns, Google's reading is used and no boundary is applied; the `SUMMARY` record says so.\n- **`?cid=` links are not read.** Use the place link, the place id or the feature id.\n- **Tested up to 5,000 places per search.** Larger runs work the same way but have not been measured here.\n\n## ❓ FAQ\n\n**Do I need a Google account or API key?** No.\n\n**How many places can I get?** As many as Google lists for the search in the location, up to 20,000 per search. For one city and one kind of business that is usually a few hundred to a few thousand.\n\n**Why did I get fewer places than I asked for?** Google has no more for that search inside the boundary, or filters removed the rest. A search with filters also stops after reading 1,000 places, or ten places for every place you asked for if that is more. The status message says which.\n\n**Does it stay inside my city?** Yes, when OpenStreetMap has a boundary for the name you gave. In a test, 260 of 260 dentists for \"Pasadena, CA\" were in Pasadena and none in South Pasadena.\n\n**Can I search several cities and several kinds of business in one run?** Yes, with `queries` and `locations`. A place found by two searches is saved and charged once.\n\n**What changed for users of the earlier version?** The eleven fields it returned are still there under the same names and in the same order. The run no longer opens a browser, so it needs 512 MB instead of 2 GB. `maxResults` is now the number of places saved per search instead of the number looked at, and place links are all read. `price_level` (a number of dollar signs) became `price` (Google's price range as text). `includeReviews` returns up to eight reviews with exact dates, the most Google shows a visitor.\n\n**I am switching from another Google Maps Actor. Which fields match?** `title` is `name` here, `totalScore` is `rating`, `reviewsCount` is `review_count`, `categoryName` is `category`, `location.lat` and `location.lng` are `latitude` and `longitude`, `placeId` is `place_id`, `fid` is `feature_id`, `additionalInfo` is `attributes`.\n\n**How do I call it from code?** With the Apify API or the Python and JavaScript clients; every run returns a dataset you can fetch as JSON or CSV. It also works as a tool through Apify's MCP server.\n\n**Is it legal?** The Actor reads business listings Google Maps shows publicly. Listings of sole traders and reviews with author names are personal data: GDPR, CCPA and similar rules apply to how you store and use them, CAN-SPAM and local rules to any outreach, and Google's terms apply to you as well.\n\n## 🔗 You might also like\n\n- [Website Contact Extractor](https://apify.com/benthepythondev/website-contact-extractor): emails, phones and social profiles from the websites in the `website` column\n- [Google Maps Email Extractor](https://apify.com/benthepythondev/google-maps-email-scraper): places and the emails on their websites in one run\n- [Facebook Pages Scraper](https://apify.com/benthepythondev/facebook-pages-scraper): contact details of business pages\n\nCity and region boundaries © OpenStreetMap contributors.\n\n**Keywords:** google maps scraper, google maps business scraper, google maps leads, google places scraper, google maps data extractor, local business leads, google maps phone numbers, businesses without website, google maps api alternative, google maps csv export, place id, local seo data, lead generation, google maps reviews count, opening hours data, no api key\n",
+    "actorDefinition": {
+      "actorSpecification": 1,
+      "name": "google-maps-business-scraper",
+      "title": "Google Maps Scraper - Business Contacts & Ratings",
+      "description": "Returns Google Maps places for any search and location: name, phone, website, address parts, coordinates, rating, review count, opening hours, categories, place id and a lead score. Reads past Google's 200-place list by searching the map in tiles. No browser, no login; filters cost nothing extra.",
+      "version": "1.0",
+      "input": {
+        "title": "Google Maps Scraper input",
+        "type": "object",
+        "schemaVersion": 1,
+        "properties": {
+          "query": {
+            "title": "Search query",
+            "type": "string",
+            "description": "What to search for on Google Maps, as you would type it there: a kind of business (\"dentist\", \"coffee shop\"), a brand or a business name. Searched in the location below.",
+            "prefill": "restaurants",
+            "editor": "textfield"
+          },
+          "location": {
+            "title": "Location",
+            "type": "string",
+            "description": "City, district, state or country to search in, for example \"San Francisco, CA\", \"Mitte, Berlin\" or \"Texas\". With a location the Actor can read past Google's list of about 200 places by searching the map of that location piece by piece.",
+            "prefill": "San Francisco, CA",
+            "editor": "textfield"
+          },
+          "queries": {
+            "title": "More search queries",
+            "type": "array",
+            "description": "Several search queries for one run. Each query is searched in each location, and a place found by two searches is saved once.",
+            "editor": "stringList"
+          },
+          "locations": {
+            "title": "More locations",
+            "type": "array",
+            "description": "Several locations for one run, for example a list of cities. Each query is searched in each of them.",
+            "editor": "stringList"
+          },
+          "maxResults": {
+            "title": "Maximum places per search",
+            "type": "integer",
+            "description": "Places to save for each search (each query in each location), up to 20,000. One Google list holds about 120 to 240 places; for more the Actor searches the map of the location in tiles. With filters a search reads at most 1,000 places, or ten places per place asked for here if that is more.",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 20000,
+            "editor": "number"
+          },
+          "geoSplit": {
+            "title": "Split the map into tiles (geoSplit)",
+            "type": "boolean",
+            "description": "On: when a search asks for more places than Google's one list holds (about 120 to 240), the location's area is cut into a grid of map tiles, each tile is searched, crowded tiles are cut again, and every place is saved once (by its place id). Off: only Google's one list is read.",
+            "default": true,
+            "editor": "checkbox"
+          },
+          "startUrls": {
+            "title": "Place links, place ids or search links",
+            "type": "array",
+            "description": "Google Maps place links, place ids (ChIJ…), feature ids (0x…:0x…) or Google Maps search links. Each place is read from its own page, every link is read regardless of the limit above. A search link is run as a search; a link with a map position (…/@37.76,-122.41,15z) searches that part of the map.",
+            "editor": "stringList"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string",
+            "description": "\"search\" runs the queries and reads the links. \"direct_urls\" reads only the links and ignores the query fields.",
+            "enum": [
+              "search",
+              "direct_urls"
+            ],
+            "enumTitles": [
+              "Search and links",
+              "Links only"
+            ],
+            "default": "search",
+            "editor": "select"
+          },
+          "minRating": {
+            "title": "Minimum rating",
+            "type": "number",
+            "description": "Save only places with at least this star rating (1.0 to 5.0). Places without a rating are left out. Filtered places are not charged.",
+            "minimum": 1,
+            "maximum": 5,
+            "editor": "number",
+            "nullable": true
+          },
+          "minReviews": {
+            "title": "Minimum number of reviews",
+            "type": "integer",
+            "description": "Save only places with at least this many reviews. Filtered places are not charged.",
+            "minimum": 0,
+            "editor": "number",
+            "nullable": true
+          },
+          "websiteFilter": {
+            "title": "Website filter",
+            "type": "string",
+            "description": "\"has_website\" saves only places with a website, \"no_website\" only places without one (prospects for web design and local marketing). Filtered places are not charged.",
+            "enum": [
+              "any",
+              "has_website",
+              "no_website"
+            ],
+            "enumTitles": [
+              "Any",
+              "With a website",
+              "Without a website"
+            ],
+            "default": "any",
+            "editor": "select"
+          },
+          "skipClosedPlaces": {
+            "title": "Skip permanently closed places",
+            "type": "boolean",
+            "description": "Leave out places Google marks as permanently closed. `skipClosed` is read as well.",
+            "default": false,
+            "editor": "checkbox"
+          },
+          "requireWebsite": {
+            "title": "Only places with a website",
+            "type": "boolean",
+            "description": "Save only places that list a website, the same as websiteFilter \"has_website\". Filtered places are not charged.",
+            "default": false,
+            "editor": "checkbox"
+          },
+          "includeReviews": {
+            "title": "Full details and reviews",
+            "type": "boolean",
+            "description": "Reads each place's own page as well: price range, every group of Google's \"About\" tab, the number of 1 to 5 star reviews and the reviews Google shows a visitor on the overview (eight at most, with author, rating, text and date). One more request per place, about four places a second. Without it a row has what Google's result list carried.",
+            "default": false,
+            "editor": "checkbox"
+          },
+          "maxReviews": {
+            "title": "Maximum reviews per place",
+            "type": "integer",
+            "description": "Reviews to keep per place when reviews are included. Google shows a visitor eight at most.",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100,
+            "editor": "number"
+          },
+          "includePhotos": {
+            "title": "Include photo links",
+            "type": "boolean",
+            "description": "Adds `photos`: the photo links in Google's record of the place, between 1 and about 20. The main photo is always in `image_url`.",
+            "default": false,
+            "editor": "checkbox"
+          },
+          "includeLeadScore": {
+            "title": "Include lead score",
+            "type": "boolean",
+            "description": "Adds a score from 0 to 100 computed from the row itself: website and phone present, rating, number of reviews, opening hours, photos.",
+            "default": true,
+            "editor": "checkbox"
+          },
+          "scrapeContacts": {
+            "title": "Emails, social links and contact form from the website",
+            "type": "boolean",
+            "description": "Reads each place's website (home, contact, Kontakt, Impressum and about pages) and adds primary_email, emails, socials and has_contact_form to the row. Included in the place price, no extra event. Adds a few seconds per place; places without a website get empty fields.",
+            "default": false,
+            "editor": "checkbox"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string",
+            "description": "Language of categories, opening hours and descriptions, as a language code: en, de, fr, es, it, pt-BR, ja.",
+            "default": "en",
+            "editor": "textfield"
+          },
+          "countryCode": {
+            "title": "Country of the visitor",
+            "type": "string",
+            "description": "Two-letter country code Google is told the visitor is in. It decides the format of addresses and phone numbers: with \"us\" a US phone is \"(415) 772-9060\", a German one \"+49 30 81455310\"; with \"de\" the German one is \"030 81455310\".",
+            "default": "us",
+            "editor": "textfield"
+          },
+          "onlyNew": {
+            "title": "Only places not delivered before",
+            "type": "boolean",
+            "description": "Skips every place an earlier run with the same monitor name saved. Use it to continue a large area over several runs, or on a schedule to get businesses that appear after a first complete run. Skipped places are not charged.",
+            "default": false,
+            "editor": "checkbox"
+          },
+          "monitorId": {
+            "title": "Monitor name",
+            "type": "string",
+            "description": "Name of the memory used by \"only places not delivered before\". Runs with the same name share one memory.",
+            "editor": "textfield"
+          },
+          "excludePlaceUrls": {
+            "title": "Exclude place links",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Skip these places, given as long Google Maps place links. Excluded places are not saved or charged.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excludePlaceIds": {
+            "title": "Exclude place ids",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Skip these places, given as place ids (ChIJ…), numeric CIDs or feature ids (0x…:0x…). Excluded places are not saved or charged.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "debugMode": {
+            "title": "Debug log",
+            "type": "boolean",
+            "description": "Logs every request with its size and time. For support.",
+            "default": false,
+            "editor": "checkbox"
+          }
+        }
+      },
+      "dockerfile": "../Dockerfile",
+      "readme": "# 📍 Google Maps Scraper: Business Contacts, Ratings and Leads\n\nReturns the places Google Maps shows for a search: name, phone, website, address in parts, coordinates, rating, number of reviews, opening hours, categories, place id and a lead score. Give it \"dentist\" and \"Austin, TX\" and you get the dentists of Austin, thousands if you want them, without a Google login or API key. It reads past the roughly 200 places one Google list holds and keeps to the boundary of the city, district or state you name.\n\n**Price:** until October 18, 2026 $10.00 per 1,000 places on the Apify Free plan; from October 19 $1.50 per 1,000 ($1.20 from Gold up). Filters, full details and reviews cost nothing extra, and a place that a filter drops is not charged. Export to JSON, CSV or Excel, run on a schedule, call via API, or connect to Make, Zapier or n8n.\n\n## 🔎 What is the Google Maps Scraper?\n\nIt calls the data requests Google Maps' own pages make, so no browser runs. A run of ten places takes about five seconds at 512 MB of memory; 260 dentists inside the city limits of Pasadena took 27 seconds.\n\nOne Google list ends after about 120 to 240 places. For more, the Actor searches the map of your location tile by tile, cuts every crowded tile into four and saves each place once. A map tile is a rectangle and a city is not, so the location is also looked up in OpenStreetMap: tiles outside the boundary are not searched and places outside it are not saved. A search for restaurants in Los Angeles returned 4,000 places in about two minutes from our own server, none of them from Pasadena, Glendale or Long Beach next door; 16 places on the city line carry a neighbouring town in their address.\n\n### What data does it extract?\n\n- **Business:** name, main category and all categories, description, price range, whether Google marks it permanently closed\n- **Contact:** phone in local and international format, website and its domain\n- **Address:** full address, street, neighborhood, city, state, postal code, country code, plus code\n- **Position:** latitude, longitude, time zone\n- **Reputation:** rating, number of reviews, lead score from 0 to 100\n- **Opening hours:** one entry per weekday\n- **\"About\" tab:** service options, accessibility, payments, parking and the other groups Google lists\n- **Identifiers:** place id, CID, feature id, Knowledge Graph id, Google Maps link\n- **Media:** main photo, number of photos, photo links on request\n- **With full details:** the number of 1, 2, 3, 4 and 5 star reviews and up to eight reviews with author, rating, text and date\n\n### What users of Google Maps scrapers report, and what this Actor does\n\nThe issue pages of the five most used Google Maps Actors on Apify were read on October 4, 2026:\n\n| Reported there | Here |\n|---|---|\n| \"Wrong city\", \"results outside of my search\", \"gave Queensland and it is doing all of Australia\" | Places are kept to the boundary OpenStreetMap has for your location. Every row also carries city, state, postal code and country code |\n| \"ReviewCount always zero\", \"review count is not included\" | Google sends some answers without review counts. The Actor notices and asks again; in a test run of 260 places every rated place had its count |\n| \"Number of results less than expected\", \"the number of results is 500\" | Up to 20,000 places per search. The status message says whether Google has more or the map is read to its end |\n| \"Run consumed full credit balance\", \"kept running with max items set\", charges for filters | A limit is exact, a place is saved once, a run stops at its maximum charge, and filtered places cost nothing |\n| \"Can I run multiple cities in one run?\" | `queries` and `locations` are lists; each query is searched in each location |\n| \"How can I exclude previous scrapings?\" | `onlyNew` with a monitor name, or `excludePlaceIds` |\n| \"Excel file has only true and false statements\" | Attributes are lists of what the place has, opening hours one entry per weekday |\n\n## ⬇️ Input\n\n| Field | Type | Default | What it does |\n|---|---|---|---|\n| `query` | string | | What to search for: a kind of business, a brand or a business name |\n| `location` | string | | City, district, state or country to search in |\n| `queries` | array | | Several search queries for one run |\n| `locations` | array | | Several locations; each query is searched in each of them |\n| `maxResults` | integer | 10 | Places to save per search, up to 20,000 |\n| `geoSplit` | boolean | true | Cut the location into a grid of map tiles when Google's one list is not enough; off reads that one list only |\n| `startUrls` | array | | Place links, place ids, feature ids or Google Maps search links |\n| `mode` | string | `search` | `direct_urls` reads only the links and ignores the query fields |\n| `minRating` | number | | Only places with at least this rating |\n| `minReviews` | integer | | Only places with at least this many reviews |\n| `websiteFilter` | string | `any` | `has_website` or `no_website` |\n| `skipClosedPlaces` | boolean | false | Leave out permanently closed places (`skipClosed` is read too) |\n| `requireWebsite` | boolean | false | Only places with a website (same as `websiteFilter: has_website`) |\n| `includeReviews` | boolean | false | Full details: price range, every \"About\" group, star distribution, up to eight reviews. One more request per place |\n| `maxReviews` | integer | 10 | Reviews to keep per place; Google shows a visitor eight at most |\n| `includePhotos` | boolean | false | Adds `photos`, the photo links in Google's record |\n| `includeLeadScore` | boolean | true | Adds `lead_score` |\n| `scrapeContacts` | boolean | false | Reads each place's website and adds `primary_email`, `emails`, `socials` and `has_contact_form`, at no extra charge |\n| `language` | string | `en` | Language of categories, hours and descriptions |\n| `countryCode` | string | `us` | Country Google is told the visitor is in; decides phone and address format |\n| `onlyNew` | boolean | false | Skip every place an earlier run with the same monitor name saved |\n| `monitorId` | string | | Name of that memory |\n| `excludePlaceUrls` | array | | Places to skip, as long Google Maps links |\n| `excludePlaceIds` | array | | Places to skip, as place ids, CIDs or feature ids |\n| `debugMode` | boolean | false | Logs every request with its size and time |\n\n### Example input\n\nAll dentists of a city:\n\n```json\n{\n  \"query\": \"dentist\",\n  \"location\": \"Austin, TX\",\n  \"maxResults\": 2000\n}\n```\n\nProspects for a web agency: well-reviewed businesses without a website, in several cities:\n\n```json\n{\n  \"queries\": [\"plumber\", \"electrician\"],\n  \"locations\": [\"Denver, CO\", \"Boulder, CO\"],\n  \"websiteFilter\": \"no_website\",\n  \"minRating\": 4.5,\n  \"minReviews\": 50,\n  \"maxResults\": 200\n}\n```\n\nKnown places by link or id, with full details and reviews:\n\n```json\n{\n  \"mode\": \"direct_urls\",\n  \"startUrls\": [\n    \"https://www.google.com/maps/place/Wayfare+Tavern/data=!4m7!3m6!1s0x8085808a62f79413:0x3754c526852815b7!8m2!3d37.7921097!4d-122.3999688!16s%2Fg%2F1tzgpfsc!19sChIJE5T3YoqAhYARtxUohSbFVDc\",\n    \"ChIJLeYyO_CAhYAR6j9XsEIm3GI\"\n  ],\n  \"includeReviews\": true\n}\n```\n\nGerman results in German format:\n\n```json\n{\n  \"query\": \"Zahnarzt\",\n  \"location\": \"Leipzig\",\n  \"language\": \"de\",\n  \"countryCode\": \"de\",\n  \"maxResults\": 300\n}\n```\n\nInput names of the most used Google Maps Actor are read as well: `searchStringsArray`, `locationQuery`, `maxCrawledPlacesPerSearch`, `placeIds`, `placeMinimumStars`, `website`, `scrapePlaceDetailPage` and `startUrls` as a list of `{\"url\": …}`.\n\nTwo tested examples you can copy into your account: [Austin coffee shops](https://apify.com/benthepythondev/google-maps-business-scraper/examples/austin-coffee-shops-sample) and [Berlin coffee shops without the places you already have](https://apify.com/benthepythondev/google-maps-business-scraper/examples/berlin-coffee-leads-exclude-known-places).\n\n## ⬆️ Output\n\nOne row per place (from a run of October 4, 2026; the attributes are shortened here):\n\n```json\n{\n  \"name\": \"Piccolo Forno\",\n  \"rating\": 4.7,\n  \"review_count\": 2433,\n  \"address\": \"725 Columbus Ave, San Francisco, CA 94133\",\n  \"phone\": \"(415) 757-0087\",\n  \"website\": \"https://piccolo-forno-sf.com/\",\n  \"categories\": [\"Italian restaurant\"],\n  \"has_hours\": true,\n  \"plus_code\": \"RH2Q+G5 San Francisco, CA\",\n  \"url\": \"https://www.google.com/maps/place/Piccolo+Forno/data=!4m7!3m6!1s0x808580f03b32e62d:0x62dc2642b0573fea!8m2!3d37.801362999999995!4d-122.412033!16s%2Fg%2F11bwny13gr!19sChIJLeYyO_CAhYAR6j9XsEIm3GI\",\n  \"lead_score\": 90,\n  \"place_id\": \"ChIJLeYyO_CAhYAR6j9XsEIm3GI\",\n  \"cid\": \"7123610778461487082\",\n  \"feature_id\": \"0x808580f03b32e62d:0x62dc2642b0573fea\",\n  \"kgmid\": \"/g/11bwny13gr\",\n  \"category\": \"Italian restaurant\",\n  \"description\": \"Casual neighborhood trattoria with Italian classics & espresso in colorful, contemporary quarters.\",\n  \"price\": null,\n  \"latitude\": 37.801362999999995,\n  \"longitude\": -122.412033,\n  \"neighborhood\": \"Russian Hill\",\n  \"street\": \"725 Columbus Ave\",\n  \"city\": \"San Francisco\",\n  \"state\": \"California\",\n  \"postal_code\": \"94133\",\n  \"country_code\": \"US\",\n  \"phone_international\": \"+1 415-757-0087\",\n  \"domain\": \"piccolo-forno-sf.com\",\n  \"opening_hours\": [\n    {\"day\": \"Monday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Tuesday\", \"hours\": \"Closed\"},\n    {\"day\": \"Wednesday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Thursday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Friday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Saturday\", \"hours\": \"11:45 AM–10 PM\"},\n    {\"day\": \"Sunday\", \"hours\": \"11:45 AM–10 PM\"}\n  ],\n  \"timezone\": \"America/Los_Angeles\",\n  \"permanently_closed\": false,\n  \"image_url\": \"https://lh3.googleusercontent.com/grass-cs/ACvplmOaCSW_8kML8cYCAeMcJaaqLelPtrlLcRushwRCby-qGUNeiOkVXxIdYoOnCeg-rDIO3OxP9G1iWM-qiA8YfKrWyKFvrAWirwpXv3DnmBc3lxwOrokGmMrO-A93Rc5wDF9UDv371Q=w1200-h900-k-no\",\n  \"photo_count\": 1877,\n  \"attributes\": {\n    \"Accessibility\": [\"Wheelchair accessible entrance\", \"Wheelchair accessible restroom\", \"Wheelchair accessible seating\"]\n  },\n  \"query\": \"restaurants San Francisco, CA\",\n  \"rank\": 1,\n  \"scraped_at\": \"2026-10-04T16:49:33.005772+00:00\"\n}\n```\n\nThis row came without full details, so `price` is empty and `attributes` has one group; with `includeReviews` a restaurant has its price range and 12 to 14 groups. `rank` is the position in Google's own list; places found on map tiles have none. With `includeReviews` a row also has `reviews_distribution` (`{\"1\": 60, \"2\": 34, \"3\": 94, \"4\": 303, \"5\": 1942}`; in a test of 60 places the five numbers added up to `review_count` every time) and `reviews`, each with `author`, `author_url`, `rating`, `text`, `language`, `published_at`, `age` and `url`. With `includePhotos` it has `photos`. With `scrapeContacts` it has `primary_email`, `emails` (each with `email`, `confidence` and the page `source`), `socials` (`facebook`, `instagram`, `linkedin` and others the site links), `has_contact_form` (a form with a message box or an email field on one of the pages read) and `website_pages_read`. The run also writes a `SUMMARY` record: places saved and read per search, how each search ended, and whether a boundary was applied.\n\n## 💰 What a run costs\n\n| Apify plan | Per 1,000 places until October 18, 2026 | From October 19, 2026 |\n|---|---|---|\n| Free | $10.00 | $1.50 |\n| Bronze | $9.00 | $1.40 |\n| Silver | $8.50 | $1.30 |\n| Gold | $8.00 | $1.20 |\n| Platinum | $7.50 | $1.20 |\n| Diamond | $7.00 | $1.20 |\n\nApify's standard start event ($0.00005) is the only other charge. Full details, reviews, photos, website contacts (emails, social links, contact form), filters and the boundary are included. Not charged: a place a filter or an exclusion drops, a place outside the boundary, a place another search of the run saved, a place already delivered in only-new mode, a link without a place behind it, and a search without results.\n\n## ⏱️ Measured on Apify (October 4, 2026)\n\n| Run | Places | Time |\n|---|---|---|\n| Sample input (one search) | 10 | 5 s |\n| Dentists in Pasadena, CA: Google's list plus map tiles, kept to the city boundary | 260 | 27 s |\n| Bakeries in Boise, ID with full details: price range, \"About\" groups, star distribution, reviews | 60 | 19 s |\n| Plumbers in Denver without a website, with 4.5 stars and 50 reviews or more: all 256 plumbers inside the city were read | 4 | 35 s |\n| A place link, a place id, a link by name and a search link, with full details | 6 | 8 s |\n\nA run of 200 coffee shops with full details that was aborted after 20 seconds and resurrected ended with 200 rows, none of them twice. All at 512 MB; the largest run used 239 MB.\n\n## 🗺️ How it reads a whole city\n\n1. Google's own list for \"query location\" comes first: the most relevant places, up to about 200, each with its `rank`.\n2. If you asked for more, the map of the location is cut into four tiles and the same search is run in each.\n3. A tile that returns 100 or more places inside itself is cut into four again, down to tiles about 300 metres high.\n4. A place is saved once, however many tiles return it.\n\nThe status message says how each search ended: at your limit with more places on the map, or with the map read to its end.\n\n## 🔔 Only new places\n\nTurn on `onlyNew` and give the run a `monitorId`. Every place a run saves is remembered under that name, and later runs skip it. Two uses: read a large area in several runs, each continuing where the last one stopped; or, after one run that read a search to its end, put it on a schedule and get the businesses that appear later. The memory is a key-value store named `google-maps-monitor` in your own account; delete a record there to start over.\n\n## 🤖 For AI agents\n\nSmallest useful call:\n\n```json\n{\"query\": \"coffee shop\", \"location\": \"Seattle, WA\", \"maxResults\": 20}\n```\n\nEach row is one place with `name`, `address`, `phone`, `website`, `rating`, `review_count`, `category`, `latitude`, `longitude`, `opening_hours` and `place_id`. `queries`, `locations` and `startUrls` take several entries. A search without results returns no rows; the status message and the `SUMMARY` record say why. No credentials are needed.\n\n## 💡 Use cases\n\n- 📇 **Lead lists:** every business of a kind in a city, with phone and website, filtered by rating or by a missing website.\n- 🗺️ **Market research:** how many competitors, where, with what ratings and price ranges.\n- 🏪 **Directory building:** names, addresses, hours and categories with stable place ids for later updates.\n- 🔁 **Monitoring:** new businesses in an area on a schedule, or the rating and review count of your own locations.\n\n## ⚠️ Limits, stated plainly\n\n- **Google decides what a search finds.** The Actor reads what Google Maps shows a visitor. A business Google does not list for your words is not found, and very small tiles are not cut further, so the densest blocks of a large city can hold a few more places than the run returns.\n- **Review lists are not available.** Google shows a visitor up to eight reviews per place and asks for a signed-in account for the rest. `includeReviews` returns those eight and the exact star distribution.\n- **Without full details some fields depend on Google.** Google gives some visitors a shorter record: contact data, rating and review count are there, but no price range, one \"About\" group and one photo. A row without full details has what the result list carried. With `includeReviews` the Actor reads each place's own page through a visitor that gets the complete record.\n- **Emails only from the business's own website.** Google Maps does not publish them. With `scrapeContacts` the Actor reads the home, contact, Kontakt, Impressum and about pages of each place's website; a site that publishes no address gets none, and nothing is guessed. A place without a website gets empty contact fields.\n- **The boundary is OpenStreetMap's, simplified to about 100 metres.** A place on the city line can fall on either side.\n- **A boundary needs a place name.** A postcode, a street or \"near Times Square\" has no boundary in OpenStreetMap; the map view Google shows for it is searched instead and can include the surroundings. When OpenStreetMap and Google read a name as two different towns, Google's reading is used and no boundary is applied; the `SUMMARY` record says so.\n- **`?cid=` links are not read.** Use the place link, the place id or the feature id.\n- **Tested up to 5,000 places per search.** Larger runs work the same way but have not been measured here.\n\n## ❓ FAQ\n\n**Do I need a Google account or API key?** No.\n\n**How many places can I get?** As many as Google lists for the search in the location, up to 20,000 per search. For one city and one kind of business that is usually a few hundred to a few thousand.\n\n**Why did I get fewer places than I asked for?** Google has no more for that search inside the boundary, or filters removed the rest. A search with filters also stops after reading 1,000 places, or ten places for every place you asked for if that is more. The status message says which.\n\n**Does it stay inside my city?** Yes, when OpenStreetMap has a boundary for the name you gave. In a test, 260 of 260 dentists for \"Pasadena, CA\" were in Pasadena and none in South Pasadena.\n\n**Can I search several cities and several kinds of business in one run?** Yes, with `queries` and `locations`. A place found by two searches is saved and charged once.\n\n**What changed for users of the earlier version?** The eleven fields it returned are still there under the same names and in the same order. The run no longer opens a browser, so it needs 512 MB instead of 2 GB. `maxResults` is now the number of places saved per search instead of the number looked at, and place links are all read. `price_level` (a number of dollar signs) became `price` (Google's price range as text). `includeReviews` returns up to eight reviews with exact dates, the most Google shows a visitor.\n\n**I am switching from another Google Maps Actor. Which fields match?** `title` is `name` here, `totalScore` is `rating`, `reviewsCount` is `review_count`, `categoryName` is `category`, `location.lat` and `location.lng` are `latitude` and `longitude`, `placeId` is `place_id`, `fid` is `feature_id`, `additionalInfo` is `attributes`.\n\n**How do I call it from code?** With the Apify API or the Python and JavaScript clients; every run returns a dataset you can fetch as JSON or CSV. It also works as a tool through Apify's MCP server.\n\n**Is it legal?** The Actor reads business listings Google Maps shows publicly. Listings of sole traders and reviews with author names are personal data: GDPR, CCPA and similar rules apply to how you store and use them, CAN-SPAM and local rules to any outreach, and Google's terms apply to you as well.\n\n## 🔗 You might also like\n\n- [Website Contact Extractor](https://apify.com/benthepythondev/website-contact-extractor): emails, phones and social profiles from the websites in the `website` column\n- [Google Maps Email Extractor](https://apify.com/benthepythondev/google-maps-email-scraper): places and the emails on their websites in one run\n- [Facebook Pages Scraper](https://apify.com/benthepythondev/facebook-pages-scraper): contact details of business pages\n\nCity and region boundaries © OpenStreetMap contributors.\n\n**Keywords:** google maps scraper, google maps business scraper, google maps leads, google places scraper, google maps data extractor, local business leads, google maps phone numbers, businesses without website, google maps api alternative, google maps csv export, place id, local seo data, lead generation, google maps reviews count, opening hours data, no api key\n",
+      "categories": [
+        "LEAD_GENERATION",
+        "SEO_TOOLS",
+        "OTHER"
+      ],
+      "isPublic": true,
+      "seoTitle": "Google Maps Scraper - Business Contacts & Ratings",
+      "seoDescription": "Export Google Maps businesses with phone, website, address, rating, review count, hours and place id to CSV or JSON. Thousands of places per search, no login.",
+      "storePricingModel": "PAY_PER_EVENT",
+      "minMemoryMbytes": 512,
+      "runPermissions": [
+        "datasets.write"
+      ],
+      "storages": {
+        "dataset": {
+          "actorSpecification": 1,
+          "fields": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "rating": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "review_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "address": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "website": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "categories": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "has_hours": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "plus_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": "string"
+              },
+              "lead_score": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "place_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "feature_id": {
+                "type": "string"
+              },
+              "kgmid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "price": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "latitude": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "longitude": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "neighborhood": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "street": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postal_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "country_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone_international": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "domain": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opening_hours": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "permanently_closed": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "image_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "photo_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "attributes": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "photos": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "reviews_distribution": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "reviews": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "scraped_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "primary_email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "emails": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "socials": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "has_contact_form": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "website_pages_read": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "url",
+              "feature_id"
+            ]
+          },
+          "views": {
+            "overview": {
+              "title": "Business contacts",
+              "transformation": {
+                "fields": [
+                  "name",
+                  "category",
+                  "address",
+                  "phone",
+                  "website",
+                  "rating",
+                  "review_count",
+                  "lead_score",
+                  "url"
+                ]
+              },
+              "display": {
+                "component": "table",
+                "properties": {
+                  "name": {
+                    "label": "Name"
+                  },
+                  "category": {
+                    "label": "Category"
+                  },
+                  "address": {
+                    "label": "Address"
+                  },
+                  "phone": {
+                    "label": "Phone"
+                  },
+                  "website": {
+                    "label": "Website",
+                    "format": "link"
+                  },
+                  "rating": {
+                    "label": "Rating"
+                  },
+                  "review_count": {
+                    "label": "Reviews"
+                  },
+                  "lead_score": {
+                    "label": "Lead score"
+                  },
+                  "url": {
+                    "label": "Google Maps",
+                    "format": "link"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "actorOutputSchemaVersion": 1,
+        "title": "Google Maps business results",
+        "properties": {
+          "results": {
+            "type": "string",
+            "title": "Businesses",
+            "template": "{{links.apiDefaultDatasetUrl}}/items"
+          }
+        }
+      },
+      "actorPermissionLevel": "LIMITED_PERMISSIONS",
+      "defaultRunOptions": {
+        "build": "latest",
+        "memoryMbytes": 512,
+        "timeoutSecs": 3600
+      }
+    },
+    "buildNumber": "1.0.34",
+    "imageDigest": "5c9f1affd667ef1059cb543327e7ee5621987ab5c01e8bca9b8a6fc3b6cb714f",
+    "actVersion": {
+      "sourceType": "SOURCE_FILES",
+      "buildTag": "beta",
+      "versionNumber": "1.0"
+    },
+    "usage": {
+      "ACTOR_COMPUTE_UNITS": 0.0026455555555555555
+    }
+  }
+}
