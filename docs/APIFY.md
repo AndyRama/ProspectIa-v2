@@ -1,45 +1,44 @@
-# Apify : recherche d’entreprises avec email publié
+# Apify : recherche Google Maps Business complète
 
-## Fournisseur et sortie attendue
+## Fournisseur et champs
 
-Les nouvelles recherches utilisent **`benthepythondev/google-maps-email-scraper`** (`4MTxdHfGoKTLDoTrD`), avec `requireEmail:true`. Le fournisseur annonce l’exclusion des établissements dont le site ne publie pas d’email : ils ne sont pas sauvegardés ni facturés comme résultats selon son contrat. Cela ne garantit ni 25 résultats ni la délivrabilité des boîtes.
+Les nouvelles recherches utilisent **`benthepythondev/google-maps-business-scraper`** (`uU8ybh0dgvI68Q3o2`). Le contrat public du build **1.0.34** expose désormais **`scrapeContacts`** : le fournisseur annonce l’extraction des contacts publiés sur les sites, sans supplément à son prix par résultat. Ce constat remplace celui des anciennes versions dépourvues de cette option.
 
-Les sorties documentées incluent `primary_email`, `emails[]` (objets contenant email, source, confiance et état éventuel), les coordonnées et les identités Google selon disponibilité. Les métadonnées sont conservées avec provenance, sans présenter une boîte comme vérifiée/délivrable en l’absence de preuve.
+Les coordonnées et détails renvoyés par le fournisseur sont enregistrés : nom, catégorie, adresse et localisation, téléphone, site, identités Google, note et nombre d’avis, horaires, images et contacts selon leur disponibilité. Une adresse absente chez le fournisseur reste absente. L’email vient du site de l’entreprise, pas de Google Maps ; il n’est pas testé pour la délivrabilité.
 
-L’ancien `google-maps-business-scraper` ne publie pas d’emails. Ses collectes déjà payées restent lisibles/récupérables avec leur Actor et entrée enregistrés. Changer uniquement le nom d’Actor dans un ancien pending est interdit.
+Une entreprise **n’est pas écartée au seul motif qu’aucun email public n’a été trouvé**. L’Actor email distinct et son filtre `requireEmail:true` ne constituent plus le parcours de découverte par défaut.
 
-## Avant de payer
+## Avant chaque collecte payante
 
-1. Renseigner ville, activité, limite et budget.
-2. **Préparer une recherche Apify** calcule les exclusions et vérifie publiquement le build, le schéma et les tarifs. Ces GET de métadonnées ne lancent aucun run.
-3. L’aperçu nomme l’Actor, montre ses tarifs par événement, le budget et les avertissements. Le palier de prix effectif du compte n’est pas certifié par un GET public.
-4. La confirmation explicite autorise un seul lancement. Le serveur revalide Actor/build/schéma/input/prix/exclusions sous verrou ; tout changement demande un nouvel aperçu.
-5. Récupérer le même run, sans relancer après une réponse incertaine.
+1. Renseigner ville, activité/mot-clé, limite et budget.
+2. **Préparer une recherche Apify** vérifie le schéma, le build et les prix officiels par GET, sans lancement de run.
+3. Lire l’aperçu : fournisseur, options de collecte, exclusions, limites et tarifs par événement. Les prix publics par palier ne certifient pas le palier du compte.
+4. Confirmer explicitement un lancement unique. Le plan est lié à l’Actor, au contrat, aux prix, au budget et aux exclusions ; un changement demande un nouvel aperçu.
+5. **Récupérer la collecte** consulte le même run. Une réponse incertaine ne provoque jamais de nouvelle tentative payante automatique.
 
-Au contrôle public, le prix Free annoncé est de 0,003 USD par résultat et 0,00005 USD par Go pour l’événement de démarrage. L’interface reprend les métadonnées actuelles plutôt qu’une estimation présentée comme facture. Un frais de démarrage peut subsister avec zéro résultat. `maxTotalChargeUsd` transmet un seuil d’arrêt soumis au fonctionnement des événements, pas une garantie absolue de facture ; `maxItems` n’est pas une protection financière pour PAY_PER_EVENT.
+Le budget est transmis comme seuil `maxTotalChargeUsd`, soumis à la facturation par événements : ce n’est pas une garantie absolue de montant. Des frais de démarrage sont possibles même sans résultat. Aucun lot de 25 ni contact complet n’est garanti. `maxItems` n’est pas une protection financière PAY_PER_EVENT.
 
-## Exclusions et migration sûres
+## Exclusions et conservation des données
 
-- Le nouvel Actor accepte `excludePlaceIds`, `onlyNew` et `monitorId`, mais **pas `excludePlaceUrls`** dans le schéma publié.
-- Les URLs encodant des identifiants Google exacts peuvent être réconciliées ; une URL seule non convertible ou une identité historique insuffisante **bloque le lancement**. Ne pas supprimer les fiches pour contourner cette garde.
-- La mémoire distante `google-maps-email-monitor` est distincte de celle de l’ancien Actor business. Garder uniquement le même nom de monitor ne prouve pas la reprise de l’historique ; les exclusions explicites restent indispensables.
-- Les identités sont conservées comme chaînes, notamment les CID ; aucune réparation d’un nombre arrondi.
-- Les receipts UUID, verrou durable, absence de retry automatique, preuve de récupération Actor/propriétaire/chronologie/INPUT et finalisation du coût sont conservés.
+L’Actor Business accepte **`excludePlaceIds` et `excludePlaceUrls`**, ainsi que `onlyNew` et `monitorId`. Les identifiants et URLs exploitables des fiches connues, historiques et archives sont transmis avant le lancement. La mémoire Business existante reste utilisée ; la mémoire du précédent Actor email n’est pas présumée interchangeable.
 
-**Conserver `.env` et `.data/` pendant la mise à jour.** Le reset efface les exclusions locales et peut conduire à repayer les mêmes entreprises. Aucun reset n’est nécessaire pour installer ce correctif.
+Les fiches importées sans identité Google ne permettent pas d’exclusion certaine : ce risque doit être signalé avant confirmation, mais leur seule présence ne rend pas toutes les recherches impossibles. Une déduplication après récupération ne rembourse pas un résultat déjà facturé.
 
-## Hors périmètre automatique
+Les anciens runs Business, email et Compass restent récupérables selon l’Actor et l’entrée d’origine enregistrés. Aucun pending n’est transformé en run d’un autre Actor. Verrou durable, receipts et contrôles de récupération propriétaire/chronologie/INPUT sont préservés.
 
-La récupération automatique locale des emails sur les sites est retirée, y compris après un nouveau run. Les actions manuelles éventuelles restent dans les fiches/outils explicites, pas répétées sur chaque ligne. Aucun fallback ADEME RGE ni autre annuaire n’est ajouté.
+**Conserver `.env` et `.data/`. Aucun reset n’est nécessaire.** Effacer la base peut supprimer les exclusions locales et conduire à repayer des fiches.
 
-L’enrichissement ciblé Compass historique reste distinct : Place IDs validés uniquement, blocage des recherches libres susceptibles de refacturer les mêmes résultats, contacts payants supplémentaires désactivés. Les données et anciens historiques ne sont pas effacés.
+## Actions locales distinctes
 
-## Vérification et limites
+Aucun extracteur local de contacts ne se lance automatiquement à réception des résultats. Les éventuels outils manuels de recherche sur site et contrôles préliminaires restent explicites. Aucun secours ADEME RGE ni autre annuaire n’est ajouté.
 
-Contrats et tarifs vérifiés par GET anonymes officiels, sans lancement payant. Les tests utilisent des providers simulés et des bases temporaires ; ils ne valident ni une clé utilisateur, ni le débit réel, ni la délivrabilité. Les anciens runs business et Compass restent soumis à leur contrat et prix d’origine.
+Le mode ciblé historique Compass reste distinct : identifiants validés uniquement, options de contacts supplémentaires payantes désactivées. Le `scrapeContacts` du Business actuel a un contrat différent ; ne pas confondre ces deux options sur deux Actors différents.
+
+## Vérifications
+
+Les contrats publics sont consultés sans clé utilisateur ni lancement payant. Les tests isolés utilisent des réponses fournisseur simulées ; ils ne valident ni la facturation réelle, ni la clé du compte, ni la délivrabilité des adresses.
 
 Sources officielles :
-- https://api.apify.com/v2/acts/benthepythondev~google-maps-email-scraper/builds/default
-- https://api.apify.com/v2/acts/benthepythondev~google-maps-email-scraper
 - https://api.apify.com/v2/acts/benthepythondev~google-maps-business-scraper/builds/default
-- https://api.apify.com/v2/acts/compass~crawler-google-places/builds/default
+- https://api.apify.com/v2/acts/benthepythondev~google-maps-business-scraper
+- https://api.apify.com/v2/acts/benthepythondev~google-maps-email-scraper/builds/default

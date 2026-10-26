@@ -72,8 +72,9 @@ for (const discovery of [true, false]) {
     };
     for (const [key, value] of Object.entries(expectedFields)) {
       assert.equal(p.fields[key]?.value, value, key);
-      assert.equal(p.fields[key].source, 'Apify · Google Maps', key);
-      assert.equal(p.fields[key].url, maps, key);
+      const publishedEmail = discovery && /^email(?:_\d+)?$/.test(key);
+      assert.equal(p.fields[key].source, publishedEmail ? 'Apify · email publié' : 'Apify · Google Maps', key);
+      assert.equal(p.fields[key].url, publishedEmail ? common.website : maps, key);
       assert.ok(Number.isFinite(Date.parse(p.fields[key].collectedAt)), key);
     }
     assert.deepEqual(p.socials, { instagram: common.instagrams[0], facebook: common.facebooks[0], linkedin: common.linkedIns[0],
@@ -93,7 +94,8 @@ for (const discovery of [true, false]) {
     const p = result.items![0];
     for (const key of ['category', 'city', 'address', 'phone', 'website', 'email', 'hours'] as const) assert.equal(p[key], '', key);
     for (const key of ['lat', 'lng', 'rating', 'reviews'] as const) assert.equal(p[key], null, key);
-    assert.deepEqual(Object.keys(p.fields), ['name']); assert.deepEqual(p.socials, {});
+    assert.deepEqual(Object.keys(p.fields), discovery ? ['name', 'apifyRaw', 'apifyProvenance'] : ['name', 'apifyRaw']); assert.deepEqual(p.socials, {});
+    assert.deepEqual(JSON.parse(p.fields.apifyRaw.value), discovery ? { name: 'Only name' } : { title: 'Only name' });
     const saved = await persistResults(result.items!, result.args, 'Apify', 0);
     const serialized = JSON.parse(JSON.stringify(p));
     await db.close(); assert.deepEqual(await list<Prospect>('prospects'), [serialized]);

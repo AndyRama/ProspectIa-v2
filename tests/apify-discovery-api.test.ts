@@ -1,4 +1,4 @@
-import { emailPricing, emailMetadataResponse } from './fixtures/apify-email';
+import { businessPricing, businessMetadataResponse } from './fixtures/apify-business';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
@@ -17,7 +17,7 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
   let externalCalls = 0;
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith("http://127.0.0.1:")) return realFetch(url, init);
-    externalCalls++; assert.notEqual(init?.method, "POST"); return emailMetadataResponse(url);
+    externalCalls++; assert.notEqual(init?.method, "POST"); return businessMetadataResponse(url);
   };
   const { default: app } = await import("../server/index");
   void app;
@@ -40,7 +40,7 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       assert.equal(response.status, 200);
       const plan = await response.json();
       assert.match(plan.planId, /^[a-f0-9]{64}$/);
-      assert.equal(plan.actor, "benthepythondev/google-maps-email-scraper");
+      assert.equal(plan.actor, "benthepythondev/google-maps-business-scraper");
       assert.equal(plan.max, 25); assert.equal(plan.budget, 1);
       assert.ok(externalCalls >= 2);
       for (const patch of [{ max: 26 }, { max: 1.5 }, { budget: 0.04 }, { budget: 11 }, { actor: "arbitrary/actor" }, { token: "client-secret" }, { url: "https://evil.example" }, { city: "" }, { engine: "other" }]) {
@@ -78,9 +78,9 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       globalThis.fetch = async (url, init) => {
         if (String(url).startsWith(base)) return realFetch(url, init);
         urls.push(String(url));
-        assert.ok(String(url).includes("benthepythondev~google-maps-email-scraper"));
+        assert.ok(String(url).includes("benthepythondev~google-maps-business-scraper"));
         assert.notEqual(init?.method, "POST");
-        return emailMetadataResponse(url);
+        return businessMetadataResponse(url);
       };
       assert.equal((await post("/api/apify/verify", {})).status, 200);
       assert.equal(urls.length, 2);
@@ -112,9 +112,9 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
         if (u.startsWith(base)) return realFetch(url, init);
         assert.ok(u.startsWith("https://api.apify.com/v2/"));
         if (u.includes("/runs?")) { posts++; assert.equal(init?.method, "POST"); const body = JSON.parse(String(init?.body)); assert.equal(body.onlyNew, true); assert.ok(Array.isArray(body.excludePlaceIds)); return Response.json({ data: { id: "fixtureRun12345" } }); }
-        if (u.includes("actor-runs/")) return Response.json({ data: { id: "fixtureRun12345", actId: "4MTxdHfGoKTLDoTrD", status: "SUCCEEDED", finishedAt: new Date(Date.now() - (finalizing ? 0 : 60000)).toISOString(), usageTotalUsd: 0.00001, defaultDatasetId: "fixtureDataset" } });
+        if (u.includes("actor-runs/")) return Response.json({ data: { id: "fixtureRun12345", actId: "uU8ybh0dgvI68Q3o2", status: "SUCCEEDED", finishedAt: new Date(Date.now() - (finalizing ? 0 : 60000)).toISOString(), usageTotalUsd: 0.00001, defaultDatasetId: "fixtureDataset" } });
         if (u.includes("/datasets/")) return Response.json([{ name: "Fixture atelier", place_id: "ChIJ" + "x".repeat(23), address: "10 rue fixture", category: "Artisan", city: "Bordeaux" }]);
-        return emailMetadataResponse(url);
+        return businessMetadataResponse(url);
       };
       const plan = await (await post("/api/apify/discovery/plan", args)).json();
       const input = { ...args, planId: plan.planId, requestId: "40000000-0000-4000-8000-000000000003", confirmed: true };

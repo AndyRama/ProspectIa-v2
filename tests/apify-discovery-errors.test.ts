@@ -1,4 +1,4 @@
-import { emailPricing, emailMetadataResponse } from './fixtures/apify-email';
+import { businessPricing, businessMetadataResponse } from './fixtures/apify-business';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -52,7 +52,7 @@ test("Apify HTTP errors expose only controlled French reasons and preserve exact
       await assert.rejects(discoveryApi("acts/fixture", token), /HTTP 402\..*crédit/i);
     });
     await t.test("definite HTTP rejection releases own lock; 429, 500 and uncertain transport retain it", async () => {
-      globalThis.fetch = async (url) => emailMetadataResponse(url);
+      globalThis.fetch = async (url) => businessMetadataResponse(url);
       const plan = await planApifyDiscovery(args);
       for (const status of [400, 401, 402, 403, 404, 429, 500, 0]) {
         await setSetting("apifyPending", null);
@@ -63,7 +63,7 @@ test("Apify HTTP errors expose only controlled French reasons and preserve exact
             if (!status) throw Error(`transport failed ${token}`);
             return Response.json({ error: { message: "Provider fixture reason" } }, { status });
           }
-          return emailMetadataResponse(url);
+          return businessMetadataResponse(url);
         };
         const definite = [400, 401, 402, 403, 404].includes(status);
         await assert.rejects(startApifyDiscovery(token, { ...args, planId: plan.planId, requestId: `reject-${status}` }), (error: any) => {

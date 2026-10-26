@@ -2,7 +2,7 @@
 
 ## Pourquoi les emails Google Maps étaient vides
 
-L’ancien Actor de découverte `benthepythondev/google-maps-business-scraper` annonce explicitement **« No email addresses »** : Google Maps ne les publie pas. Il renvoie notamment le téléphone et l’URL du site. Lire `emails[0]` dans ces résultats ne déclenche aucune extraction d’email et ne garantit pas que ce champ existe. Les nouvelles recherches utilisent désormais l’Actor dédié aux emails ; voir [le contrat actuel](EMAILS-APIFY.md). Les actions décrites ci-dessous restent uniquement des outils manuels distincts.
+Les anciennes versions de l’Actor Business ne proposaient pas d’extraction de contacts. Le contrat actuel du build 1.0.34 documente désormais `scrapeContacts` : les nouvelles collectes Business demandent cette option pour les contacts publiés sur les sites, sans supplément annoncé. Google Maps lui-même ne publie pas l’email. Une adresse absente du site reste introuvable ; aucune adresse n’est inventée. Voir [le contrat actuel](EMAILS-APIFY.md). Les actions décrites ci-dessous restent des outils locaux manuels distincts.
 
 Source officielle consultée : https://api.apify.com/v2/acts/benthepythondev~google-maps-business-scraper/builds/default (`actorDefinition.readme`). Ne pas ajouter un paramètre `scrapeEmails` non documenté ni relancer les anciens lots payants pour compenser cette absence.
 
@@ -10,7 +10,7 @@ Source officielle consultée : https://api.apify.com/v2/acts/benthepythondev~goo
 
 La récupération automatique des emails est désactivée, y compris après sauvegarde d’un **nouveau lot Apify**. Une recherche publique ne démarre que par une action explicite dans la fiche ou un lot confirmé. Google Maps ne fournit pas l’email et la présence d’une adresse publique sur le site n’est pas garantie ; cette limite reste affichée avant paiement.
 
-La file est séquentielle dans le navigateur, avec progression et arrêt. Un checkpoint local conserve les sites non encore tentés après rechargement ; ce n’est pas un service serveur autonome. Fermer l’application interrompt le traitement. Une requête interrompue n’est pas doublée automatiquement et reste retentable via le traitement de la base.
+La file est séquentielle dans le navigateur, avec progression et arrêt. Fermer l’application interrompt le traitement ; aucun checkpoint ne reprend automatiquement au rechargement. Les résultats confirmés dans la base restent acquis. Un nouveau traitement exige une action explicite et exclut les adresses devenues valides.
 
 Pour **les prospects déjà payés et enregistrés**, ne pas réinitialiser la base ni relancer Apify :
 
