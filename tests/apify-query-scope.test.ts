@@ -1,3 +1,4 @@
+import { emailMetadataResponse } from './fixtures/apify-email';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -9,6 +10,7 @@ test("Le plan payant respecte le moteur, les critères effectifs et le mot-clé 
   process.env.DATA_DIR = dir;
   const service = await import("../server/services/apifyDiscovery");
   const { db } = await import("../server/db");
+  const original = globalThis.fetch; globalThis.fetch = async (url) => emailMetadataResponse(url);
   try {
     const args = {
       city: "Paris",
@@ -55,6 +57,7 @@ test("Le plan payant respecte le moteur, les critères effectifs et le mot-clé 
       ).planId,
     );
   } finally {
+    globalThis.fetch = original;
     await db.close();
     await rm(dir, { recursive: true, force: true });
   }

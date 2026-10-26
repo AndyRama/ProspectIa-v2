@@ -1,3 +1,4 @@
+import { emailPricing, emailMetadataResponse } from './fixtures/apify-email';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
@@ -33,7 +34,7 @@ test("APIFY-001 HTTP contract: two concurrent POSTs, empty completed poll, late 
     actorReads = 0;
   const props = Object.fromEntries(
     Object.entries({
-      mode: "string",
+      requireEmail: "boolean", skipClosed: "boolean", countryCode: "string", mode: "string",
       query: "string",
       location: "string",
       onlyNew: "boolean",
@@ -68,14 +69,14 @@ test("APIFY-001 HTTP contract: two concurrent POSTs, empty completed poll, late 
         },
       });
     if (u.includes("/acts/")) {
-      if (++actorReads === 1) {
+      if (++actorReads === 2) {
         entered();
         await held;
       }
       return Response.json({
         data: {
-          id: "uU8ybh0dgvI68Q3o2",
-          currentPricingInfo: { pricingModel: "PAY_PER_EVENT" },
+          id: "4MTxdHfGoKTLDoTrD",
+          currentPricingInfo: { ...emailPricing },
         },
       });
     }
@@ -83,7 +84,7 @@ test("APIFY-001 HTTP contract: two concurrent POSTs, empty completed poll, late 
       return Response.json({
         data: {
           id: "fixtureRun1",
-          actId: "uU8ybh0dgvI68Q3o2",
+          actId: "4MTxdHfGoKTLDoTrD",
           status: "SUCCEEDED",
           finishedAt: new Date(Date.now() - 20000).toISOString(),
           defaultDatasetId: "dataset",

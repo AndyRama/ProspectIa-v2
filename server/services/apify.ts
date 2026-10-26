@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { db, getSetting, setSetting, claimSetting } from "../db";
 import { billedPlaceIds, validPlaceId } from "./apifyPlan";
-import { discoveryActor, discoveryActorId, discoveryApi } from './apifyDiscovery';
+import { discoveryActor, discoveryActorId, legacyDiscoveryActor, legacyDiscoveryActorId, discoveryApi } from './apifyDiscovery';
 import { canonicalMapsUrl } from './identity';
 import { publicContactEmail } from './contactExtractor';
 function expectedActor(pending: any) {
   if (pending.mode === 'discovery') {
-    if (pending.actorSlug !== discoveryActor || pending.actorId !== discoveryActorId) throw Error('Actor Apify non autorisé.');
-    return discoveryActorId;
+    const allowed = pending.actorSlug === discoveryActor ? discoveryActorId : pending.actorSlug === legacyDiscoveryActor ? legacyDiscoveryActorId : null;
+    if (!allowed || pending.actorId !== allowed) throw Error('Actor Apify non autorisé.');
+    return allowed;
   }
   return 'nwua9Gu5YrADL7ZDj';
 }
@@ -171,7 +172,7 @@ export async function recoverApify(token: string, runId: string) {
     // (including false flags) must be present with their original values.
     const normalizeInputValue = (key: string, value: unknown) =>
       ['excludePlaceIds','excludePlaceUrls'].includes(key) && Array.isArray(value) ? [...value].sort() : value;
-    const extraSelector = ['queries','locations','startUrls','searchStringsArray','placeIds'].some(key =>
+    const extraSelector = ['query','location','queries','locations','startUrls','searchStringsArray','placeIds','placeUrls','websites'].some(key =>
       !Object.hasOwn(expected || {}, key) && input?.[key] != null && input[key] !== '' &&
       !(Array.isArray(input[key]) && input[key].length === 0));
     if (!expected || typeof expected !== 'object' || Array.isArray(expected) || !input ||
@@ -225,10 +226,14 @@ export async function collectApify(token: string) {
   const social = (value: unknown): string => Array.isArray(value) ? text(...value) : '';
   const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
   const normalized = rows.map((r: any) => {
+    const emailActor = pending.mode === 'discovery' && pending.actorSlug === discoveryActor;
     const row = pending.mode === 'discovery' ? {
       ...r, title:r.name, placeId:r.place_id, categoryName:r.category, totalScore:r.rating, reviewsCount:r.review_count,
       location:{lat:r.latitude,lng:r.longitude},openingHours:r.opening_hours,imageUrl:r.image_url,imageUrls:r.photos,
       phoneInternational: text(r.phone_international),
+      ...(emailActor ? { url: text(r.google_maps_url), email: text(r.primary_email), permanentlyClosed: r.is_closed === true,
+        instagrams: [r.socials?.instagram], facebooks: [r.socials?.facebook], linkedIns: [r.socials?.linkedin],
+        youtubes: [r.socials?.youtube], tiktoks: [r.socials?.tiktok], twitters: [r.socials?.twitter, r.socials?.x] } : {}),
     } : { ...r, feature_id: text(r.fid, r.feature_id), phoneInternational: text(r.phoneUnformatted) };
     return {
       ...row, phone: pending.mode === 'discovery' ? text(row.phoneInternational, row.phone) : text(row.phone, row.phoneInternational),
@@ -245,14 +250,15 @@ export async function collectApify(token: string) {
     if (identity && seen.has(identity)) return false;
     if (identity) seen.add(identity);
     return true;
-  }).slice(0, pending.mode === 'discovery' ? Math.min(25, pending.max) : pending.max);
+  }).slice(0, pending.max);
   const items: Prospect[] = normalized
     .filter((r: any) => r.title && (!pending.placeIds || pending.placeIds.includes(r.placeId)))
     .map((r: any): Prospect => {
       const fields: Record<string, Source> = {};
-      // Only normalize addresses actually supplied by the provider. This does not
-      // imply that the current discovery Actor supplies or extracts emails.
-      const emails = [...new Set([...(Array.isArray(r.emails) ? r.emails : []), r.email]
+      const emailActor = pending.mode === 'discovery' && pending.actorSlug === discoveryActor;
+      const emailObjects = emailActor && Array.isArray(r.emails) ? r.emails.filter((v: any) => v && typeof v === 'object') : [];
+      const emailValues = emailActor ? [r.primary_email, ...emailObjects.map((v: any) => v.email)] : [...(Array.isArray(r.emails) ? r.emails : []), r.email];
+      const emails = [...new Set(emailValues
         .map(publicContactEmail).filter((email): email is string => !!email))];
       for (const [key, value] of Object.entries({
         name: r.title,
@@ -308,7 +314,23 @@ export async function collectApify(token: string) {
           value: email, source: "Apify · Google Maps", url: r.url,
           collectedAt: new Date().toISOString(), qualification: "Rapporté par Apify · à confirmer",
         };
+        if (emailActor) {
+          const proof = emailObjects.find((v: any) => publicContactEmail(v.email) === email);
+          const key = index ? `email_${index + 1}` : 'email';
+          const source = text(proof?.source, r.email_source);
+          fields[key] = { ...fields[key], source: `Apify · email publié${source ? ` · ${source}` : ''}`,
+            url: /^https?:\/\//.test(source) ? source : r.website || r.url,
+            qualification: 'Publié sur le site · délivrabilité non testée' };
+          fields[`${key}_evidence`] = { ...fields[key], value: JSON.stringify(proof || { email, confidence: r.email_confidence ?? null, source: r.email_source ?? null, verified: r.email_verified ?? null }) };
+        }
       }
+      if (emailActor) fields.apifyProvenance = {
+        value: JSON.stringify({ actor: pending.actorSlug, actorId: pending.actorId, runId: pending.runId,
+          build: pending.build ?? null, schemaFingerprint: pending.schemaFingerprint ?? null,
+          input: pending.input ?? null, pricing: pending.pricing ?? null }),
+        source: 'Apify · contrat de collecte', collectedAt: new Date().toISOString(),
+        qualification: 'Contrat enregistré lors du lancement · aucune preuve de délivrabilité',
+      };
       const mapsUrl = canonicalMapsUrl(r.url);
       const featureId = typeof r.feature_id === 'string' && /^0x[0-9a-f]+:0x[0-9a-f]+$/i.test(r.feature_id) ? r.feature_id : null;
       const identity = r.placeId || r.cid || featureId || mapsUrl || createHash('sha256')

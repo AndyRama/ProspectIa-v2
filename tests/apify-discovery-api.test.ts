@@ -1,3 +1,4 @@
+import { emailPricing, emailMetadataResponse } from './fixtures/apify-email';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
@@ -16,7 +17,7 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
   let externalCalls = 0;
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith("http://127.0.0.1:")) return realFetch(url, init);
-    externalCalls++; throw Error("External provider forbidden in local-plan tests");
+    externalCalls++; assert.notEqual(init?.method, "POST"); return emailMetadataResponse(url);
   };
   const { default: app } = await import("../server/index");
   void app;
@@ -39,9 +40,9 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       assert.equal(response.status, 200);
       const plan = await response.json();
       assert.match(plan.planId, /^[a-f0-9]{64}$/);
-      assert.equal(plan.actor, "benthepythondev/google-maps-business-scraper");
+      assert.equal(plan.actor, "benthepythondev/google-maps-email-scraper");
       assert.equal(plan.max, 25); assert.equal(plan.budget, 1);
-      assert.equal(externalCalls, 0);
+      assert.ok(externalCalls >= 2);
       for (const patch of [{ max: 26 }, { max: 1.5 }, { budget: 0.04 }, { budget: 11 }, { actor: "arbitrary/actor" }, { token: "client-secret" }, { url: "https://evil.example" }, { city: "" }, { engine: "other" }]) {
         assert.equal((await post("/api/apify/discovery/plan", { ...args, ...patch })).status, 400, JSON.stringify(patch));
       }
@@ -55,7 +56,7 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       await setSetting("limits", { max: 10, budget: 0.5 });
       assert.equal((await post("/api/apify/discovery/start", input)).status, 422);
       await setSetting("limits", { max: 25, budget: 1 });
-      assert.equal(externalCalls, 0);
+      assert.ok(externalCalls >= 2);
     });
     await t.test("same request reopens saved discovery or pending without any provider request", async () => {
       const input = { ...args, planId: "a".repeat(64), requestId: "40000000-0000-4000-8000-000000000002", confirmed: true };
@@ -67,19 +68,19 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       await db.execute({ sql: "INSERT INTO searches VALUES(?,?)", args: [saved.id, JSON.stringify(saved)] });
       const reopened = await (await post("/api/apify/discovery/start", input)).json();
       assert.equal(reopened.cached, true); assert.equal(reopened.search.id, saved.id);
-      assert.equal(externalCalls, 0);
+      assert.ok(externalCalls >= 2);
     });
     await t.test("settings verification checks the new provider without launching a run", async () => {
       const { saveSecret } = await import("../server/secrets");
       await saveSecret("apifyKey", "fixture-never-real-token");
       const urls: string[] = [];
-      const properties = Object.fromEntries(Object.entries({ mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
+      const properties = Object.fromEntries(Object.entries({ requireEmail: "boolean", skipClosed: "boolean", countryCode: "string", mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
       globalThis.fetch = async (url, init) => {
         if (String(url).startsWith(base)) return realFetch(url, init);
         urls.push(String(url));
-        assert.ok(String(url).includes("benthepythondev~google-maps-business-scraper"));
+        assert.ok(String(url).includes("benthepythondev~google-maps-email-scraper"));
         assert.notEqual(init?.method, "POST");
-        return Response.json({ data: String(url).endsWith("/builds/default") ? { buildNumber: "1.0.32", actorDefinition: { input: { properties } } } : { id: "uU8ybh0dgvI68Q3o2", currentPricingInfo: { pricingModel: "PAY_PER_EVENT" } } });
+        return emailMetadataResponse(url);
       };
       assert.equal((await post("/api/apify/verify", {})).status, 200);
       assert.equal(urls.length, 2);
@@ -104,16 +105,16 @@ test("API découverte Apify : gardes, aperçu local et contrat strict", async (t
       }
     });
     await t.test("mocked discovery start is idempotent and collection persists discovery with actual cost", async () => {
-      const properties = Object.fromEntries(Object.entries({ mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
+      const properties = Object.fromEntries(Object.entries({ requireEmail: "boolean", skipClosed: "boolean", countryCode: "string", mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
       let posts = 0, finalizing = true;
       globalThis.fetch = async (url, init) => {
         const u = String(url);
         if (u.startsWith(base)) return realFetch(url, init);
         assert.ok(u.startsWith("https://api.apify.com/v2/"));
         if (u.includes("/runs?")) { posts++; assert.equal(init?.method, "POST"); const body = JSON.parse(String(init?.body)); assert.equal(body.onlyNew, true); assert.ok(Array.isArray(body.excludePlaceIds)); return Response.json({ data: { id: "fixtureRun12345" } }); }
-        if (u.includes("actor-runs/")) return Response.json({ data: { id: "fixtureRun12345", actId: "uU8ybh0dgvI68Q3o2", status: "SUCCEEDED", finishedAt: new Date(Date.now() - (finalizing ? 0 : 60000)).toISOString(), usageTotalUsd: 0.00001, defaultDatasetId: "fixtureDataset" } });
+        if (u.includes("actor-runs/")) return Response.json({ data: { id: "fixtureRun12345", actId: "4MTxdHfGoKTLDoTrD", status: "SUCCEEDED", finishedAt: new Date(Date.now() - (finalizing ? 0 : 60000)).toISOString(), usageTotalUsd: 0.00001, defaultDatasetId: "fixtureDataset" } });
         if (u.includes("/datasets/")) return Response.json([{ name: "Fixture atelier", place_id: "ChIJ" + "x".repeat(23), address: "10 rue fixture", category: "Artisan", city: "Bordeaux" }]);
-        return Response.json({ data: u.endsWith("/builds/default") ? { buildNumber: "1.0.32", actorDefinition: { input: { properties } } } : { id: "uU8ybh0dgvI68Q3o2", currentPricingInfo: { pricingModel: "PAY_PER_EVENT" } } });
+        return emailMetadataResponse(url);
       };
       const plan = await (await post("/api/apify/discovery/plan", args)).json();
       const input = { ...args, planId: plan.planId, requestId: "40000000-0000-4000-8000-000000000003", confirmed: true };

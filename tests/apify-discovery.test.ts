@@ -1,3 +1,4 @@
+import { emailPricing, emailMetadataResponse } from './fixtures/apify-email';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -15,19 +16,19 @@ test('Local fixture: 37 catalog identities excluded before POST; stable monitor 
   assert.equal(service.safeMapsUrl('https://maps.app.goo.gl/test'),false);
   for(let i=0;i<37;i++) await db.execute({sql:'INSERT INTO prospects VALUES(?,?)',args:['old-'+i,JSON.stringify({id:'old-'+i,demo:false,fields:{placeId:{value:'ChIJ'+String(i).padStart(23,'0')}}})]});
   const args={city:' Paris ',activity:'restaurant',keyword:'',max:25,budget:1,engine:'website' as const};
-  const plan=await service.planApifyDiscovery(args); assert.equal(plan.excludedCount,37);
   const calls:any[]=[];
   globalThis.fetch=async(url:any,init?:RequestInit)=>{
    const u=String(url); calls.push({url:u,body:init?.body?JSON.parse(String(init.body)):null});
-   const props:any={}; for(const [k,type] of Object.entries({mode:'string',query:'string',location:'string',onlyNew:'boolean',monitorId:'string',excludePlaceIds:'array',excludePlaceUrls:'array',maxResults:'integer',language:'string',includeReviews:'boolean',includePhotos:'boolean',includeLeadScore:'boolean',debugMode:'boolean'})) props[k]={type,...(type==='array'?{items:{type:'string'}}:{})};
-   return Response.json(u.endsWith('/builds/default')?{data:{buildNumber:'1.0.32',actorDefinition:{input:JSON.stringify({properties:props})}}}:u.includes('/runs?')?{data:{id:'fixture-run'}}:{data:{id:'uU8ybh0dgvI68Q3o2',currentPricingInfo:{pricingModel:'PAY_PER_EVENT'}}});
+   const props:any={}; for(const [k,type] of Object.entries({requireEmail:'boolean',skipClosed:'boolean',countryCode:'string',mode:'string',query:'string',location:'string',onlyNew:'boolean',monitorId:'string',excludePlaceIds:'array',excludePlaceUrls:'array',maxResults:'integer',language:'string',includeReviews:'boolean',includePhotos:'boolean',includeLeadScore:'boolean',debugMode:'boolean'})) props[k]={type,...(type==='array'?{items:{type:'string'}}:{})};
+   return u.includes('/runs?') ? Response.json({data:{id:'fixture-run'}}) : emailMetadataResponse(url);
   };
+  const plan=await service.planApifyDiscovery(args); assert.equal(plan.excludedCount,37);
   assert.equal(await service.startApifyDiscovery('fixture-token',{...args,planId:plan.planId,requestId:'request-1'}),'fixture-run');
   const post=calls.find(c=>c.body); assert.equal(post.body.excludePlaceIds.length,37); assert.equal(post.body.onlyNew,true); assert.ok(post.body.monitorId); assert.equal(new URL(post.url).searchParams.get('maxItems'),null);
   assert.equal(await service.startApifyDiscovery('fixture-token',{...args,planId:plan.planId,requestId:'request-1'}),'fixture-run'); assert.equal(calls.filter(c=>c.body).length,1);
   assert.equal((await getSetting<any>('apifyPending',null)).placeIds,undefined);
   await setSetting('apifyPending',null); assert.equal((await service.planApifyDiscovery({...args,city:'Lyon'})).excludedCount,37);
-  assert.equal((await getSetting<any>('apifyDiscoveryMonitorId',null)),post.body.monitorId);
+  assert.equal((await getSetting<any>('apifyEmailDiscoveryMonitorId',null)),post.body.monitorId);
   await service.planApifyDiscovery({...args,engine:'menu'});
   await service.planApifyDiscovery({...args,engine:'voice'});
   for(const [max,budget] of [[0,1],[26,1],[25,.01],[25,11],[1,NaN]]) await assert.rejects(()=>service.planApifyDiscovery({...args,max,budget}),/Plafonds/);
@@ -46,11 +47,12 @@ test('Local fixture: 37 catalog identities excluded before POST; stable monitor 
   await db.execute({sql:'INSERT INTO searches VALUES(?,?)',args:['historical-reference',JSON.stringify({id:'historical-reference',provider:'Apify',ids:['apify-ChIJ'+'z'.repeat(23)]})]});
   assert.equal((await service.planApifyDiscovery(args)).excludedCount,114);
   await db.execute({sql:'INSERT INTO prospects VALUES(?,?)',args:['url-only',JSON.stringify({id:'url-only',fields:{name:{value:'URL fixture',url:'https://www.google.com/maps/place/URL-fixture'}}})]});
-  assert.equal((await service.planApifyDiscovery(args)).excludedCount,115);
+  assert.equal((await service.planApifyDiscovery(args)).blocked,true);
+  await db.execute("DELETE FROM prospects WHERE id='url-only'");
   const fixtureFetch=globalThis.fetch;
   for(const drift of ['pricing','schema']) {
    globalThis.fetch=async(url:any,init?:RequestInit)=>{const r=await fixtureFetch(url,init);const value:any=await r.json();if(drift==='pricing'&&value.data?.currentPricingInfo)value.data.currentPricingInfo.pricingModel='PAY_PER_RESULT';if(drift==='schema'&&value.data?.actorDefinition)value.data.actorDefinition.input=JSON.stringify({properties:{}});return Response.json(value);};
-   const fresh=await service.planApifyDiscovery(args);await assert.rejects(()=>service.startApifyDiscovery('fixture',{...args,planId:fresh.planId,requestId:drift}),/Schéma|Tarification/);assert.equal(await getSetting('apifyPending',null),null);
+   await assert.rejects(()=>service.planApifyDiscovery(args),/Schéma|Tarification/);assert.equal(await getSetting('apifyPending',null),null);
   }
   globalThis.fetch=async(url:any,init?:RequestInit)=>{if(init?.method==='POST')throw Error('fixture network uncertainty with secret must not escape');return fixtureFetch(url,init);};
   const uncertain=await service.planApifyDiscovery(args);await assert.rejects(()=>service.startApifyDiscovery('fixture',{...args,planId:uncertain.planId,requestId:'uncertain'}),e=>/verrou est conservé/.test(String(e))&&!String(e).includes('secret'));

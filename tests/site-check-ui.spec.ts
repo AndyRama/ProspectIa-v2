@@ -40,6 +40,9 @@ test("row amber CTA checks homepage, no-site red is disabled, status changes aft
   const check = row.getByRole("button", { name: "Vérifier le site · contrôle préliminaire", exact: true });
   await expect(check).toHaveCSS("background-color", "rgb(254, 243, 199)");
   await expect(check).toHaveCSS("color", "rgb(120, 53, 15)");
+  await expect(row.locator('.web-badge')).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Voir la fiche' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Archiver', exact: true })).toBeVisible();
   const missing = page.getByRole("button", { name: "Aucun site renseigné", exact: true });
   await expect(missing).toBeDisabled();
   await expect(missing).toHaveCSS("background-color", "rgb(254, 226, 226)");
