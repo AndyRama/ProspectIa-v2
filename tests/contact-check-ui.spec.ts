@@ -70,57 +70,35 @@ test('whole catalogue ignores active search and filters, confirms then processes
   expect(api.calls.slice(32)).toEqual(['not-found', 'failed']); expect(api.errors).toEqual([]);
 });
 
-test('new persisted Apify poll automatically retrieves email and reload does not repeat the approved lot', async ({ page }) => {
-  const api = await fixture(page, [], { poll: 'new' });
-  expect(api.calls).toEqual([]);
-  await page.getByRole('button', { name: 'Récupérer la collecte', exact: true }).click();
-  const row = page.locator('tbody tr').filter({ hasText: 'Contact public' });
-  await expect(row.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeEnabled();
-  await expect(page.locator('.contact-check-batch')).toContainText('1/1 traités');
-  await expect(page.locator('.contact-check-batch')).toContainText('1 sans site');
-  expect(api.calls).toEqual(['found']);
-  expect(api.events.slice(api.events.indexOf('poll'), api.events.indexOf('contact:found') + 1)).toEqual(['poll', 'state', 'contact:found']);
-  await expect(page.locator('.contact-check-batch')).toContainText('1 emails récupérés · 0 indisponibles · 1 sans site');
-  await page.reload();
-  await expect(page.locator('tbody tr')).toHaveCount(2);
-  await expect(page.locator('tbody tr').filter({ hasText: 'Contact public' })).toContainText('Email public trouvé');
-  expect(api.calls).toEqual(['found']); expect(api.errors).toEqual([]);
-});
-
-test('automatic contact failure preserves the saved Apify lot and reports missing contacts without paid retry', async ({ page }) => {
-  const api = await fixture(page, [{ id: 'failed', name: 'Site illisible' }, { id: 'not-found', name: 'Site sans email' }], { poll: 'new', pollIds: ['found', 'failed', 'not-found', 'missing', 'refused', 'demo', 'archive', 'valid'] });
-  await page.getByRole('button', { name: 'Récupérer la collecte', exact: true }).click();
-  await expect(page.locator('.contact-check-batch')).toContainText('3/3 traités');
-  await expect(page.locator('.contact-check-batch')).toContainText('1 emails récupérés · 2 indisponibles · 1 sans site');
-  expect(api.calls).toEqual(['found', 'failed', 'not-found']);
-  expect(api.maxActive()).toBe(1);
-  await page.reload();
-  await expect(page.locator('tbody tr')).toHaveCount(7);
-  await expect(page.locator('tbody tr').filter({ hasText: 'Contact public' })).toContainText('public@atelier-fixture.fr');
-  await expect(page.locator('tbody tr').filter({ hasText: 'Site illisible' })).toContainText('Lecture du site impossible');
-  await page.waitForTimeout(300);
-  expect(api.calls).toEqual(['found', 'failed', 'not-found']);
-  expect(api.errors).toEqual([]);
-});
-
-for (const mode of ['cached', 'noeligible', 'partial'] as const) test(`Apify ${mode} result does not crawl any site automatically`, async ({ page }) => {
+for (const mode of ['new', 'cached', 'noeligible', 'partial'] as const) test(`Apify ${mode} poll persists the lot without automatic contact checks`, async ({ page }) => {
   const api = await fixture(page, [], { poll: mode });
+  expect(api.calls).toEqual([]);
   await page.getByRole('button', { name: 'Récupérer la collecte', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Récupérer la collecte', exact: true })).toHaveCount(0);
   await expect(page.locator('tbody tr')).toHaveCount(2);
-  if (mode === 'noeligible') await expect(page.locator('.contact-check-batch')).toContainText('0/0 traités');
-  expect(api.calls).toEqual([]); expect(api.errors).toEqual([]);
+  await page.waitForTimeout(500);
+  expect(api.calls).toEqual([]);
+  expect(api.events.slice(api.events.indexOf('poll'))).toEqual(['poll', 'state']);
+  await page.reload();
+  await expect(page.locator('tbody tr')).toHaveCount(2);
+  await page.waitForTimeout(300);
+  expect(api.calls).toEqual([]);
+  await page.locator('tbody tr').filter({ hasText: mode === 'noeligible' ? 'Email existant' : 'Contact public' }).getByRole('button', { name: 'Voir la fiche' }).click();
+  const drawer = page.getByRole('complementary', { name: 'Fiche prospect' });
+  await expect(drawer.getByRole('button', { name: search, exact: true })).toBeEnabled();
+  expect(api.errors).toEqual([]);
 });
 
 test('pre-payment plan states email limits and drawer shows missing values with provenance', async ({ page }) => {
   const api = await fixture(page);
   await page.getByRole('button', { name: 'Préparer une recherche Apify', exact: true }).click();
   const modal = page.getByRole('dialog');
-  await expect(modal).toContainText('Google Maps ne fournit pas d’emails');
+  await expect(modal).toContainText('L’Actor recherche les emails publiés');
   await expect(modal).toContainText('identifiant Google');
   await expect(modal).toContainText('téléphone');
   await expect(modal).toContainText('adresse');
-  await expect(modal).toContainText('démarre automatiquement');
+  await expect(modal).toContainText('demande explicite');
+  await expect(modal).not.toContainText('automatiquement');
   await expect(modal).toContainText('Email non garanti');
   await expect(modal).toContainText('récupération est impossible');
   await modal.getByRole('button', { name: 'Annuler', exact: true }).click();
@@ -153,34 +131,7 @@ for (const status of ['pending', 'paused'] as const) test(`loaded ${status} chec
   await expect(page.locator('tbody tr')).toHaveCount(3);
   await page.waitForTimeout(500);
   expect(api.calls).toEqual([]);
-  if (status === 'paused') await expect(page.locator('.contact-check-batch')).toContainText('aucune reprise automatique après rechargement');
-  expect(api.errors).toEqual([]);
-});
-
-for (const reloadDuringResponse of [true, false]) test(`automatic stop persists immediately and survives ${reloadDuringResponse ? 'reload during suspended response' : 'completion of the last response'}`, async ({ page }) => {
-  const ids = reloadDuringResponse ? ['found', 'in-flight', 'remaining'] : ['found', 'in-flight'];
-  const api = await fixture(page, [{ id: 'in-flight', name: 'Site en cours' }, { id: 'remaining', name: 'Restant' }], { activeIds: ids, holdId: 'in-flight', poll: 'new', pollIds: ids });
-  await page.getByRole('button', { name: 'Récupérer la collecte', exact: true }).click();
-  const checkpoint = () => page.evaluate(() => JSON.parse(localStorage.getItem('prospectai:approved-contact-lots:v1')!)['approved-poll']);
-  await expect.poll(() => api.calls).toEqual(['found', 'in-flight']);
-  await expect(page.locator('tbody tr').filter({ hasText: 'Contact public' })).toContainText('Email public trouvé');
-  await page.getByRole('button', { name: 'Arrêter après le site en cours', exact: true }).click();
-  const stopped = await checkpoint();
-  expect.soft(stopped.status).toBe('paused');
-  expect(stopped.done).toEqual(['found', 'in-flight']);
-  if (!reloadDuringResponse) {
-    api.release();
-    await expect(page.getByRole('button', { name: wholeBase, exact: true })).toBeEnabled();
-    expect.soft((await checkpoint()).status).toBe('paused');
-  }
-  await page.reload();
-  await expect(page.locator('tbody tr')).toHaveCount(ids.length);
-  await page.waitForTimeout(500);
-  expect(api.calls).toEqual(['found', 'in-flight']);
-  expect((await checkpoint()).status).toBe('paused');
-  await expect(page.locator('tbody tr').filter({ hasText: 'Contact public' })).toContainText('Email public trouvé');
-  await expect(page.locator('.contact-check-batch')).toContainText('aucune reprise automatique après rechargement');
-  api.release();
+  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true })).toHaveCount(0);
   expect(api.errors).toEqual([]);
 });
 
@@ -207,19 +158,31 @@ test('whole-base cap warns, stop remains accessible while busy and finishes only
   expect(api.calls).toEqual(['found']); expect(api.errors).toEqual([]);
 });
 
-test('explicit row and drawer lookup confirms persistence before unlocking existing email prompt', async ({ page }) => {
-  const api = await fixture(page);
+test('compact row has no email actions or warnings; explicit drawer lookup persists before unlocking prompt', async ({ page }) => {
+  const api = await fixture(page, [{ id: 'old-failed', name: 'Ancien échec email', phone: '0123456789', email: 'public@atelier-fixture.fr', contactCheck: { status: 'failed', checkedAt: '2026-01-01T00:00:00Z', error: 'Erreur email historique' } }]);
   expect(api.calls).toEqual([]);
-  await expect(page.getByText(/Google Maps ne fournit pas/)).toBeVisible();
-  const row = page.locator('tbody tr').filter({ hasText: 'Contact public' });
-  await expect(row.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeDisabled();
-  await row.getByRole('button', { name: search, exact: true }).click();
-  await expect(row.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeEnabled();
-  await expect(row).toContainText('Email public trouvé');
-  await row.getByRole('button', { name: 'Voir la fiche' }).click();
+  await expect(page.getByText(/L’Actor EMAIL recherche déjà les emails publiés/)).toBeVisible();
+  const rows = page.locator('tbody');
+  await expect(rows.getByRole('button', { name: /prompt email|Compléter l’email|Corriger l’email|Rechercher l’email/ })).toHaveCount(0);
+  await expect(rows.locator('.contact-check-action')).toHaveCount(0);
+  await expect(rows).not.toContainText('Erreur email historique');
+  await expect(rows).not.toContainText('Adresse email manquante');
+  await expect(rows).not.toContainText('Recherche impossible');
+  const old = page.locator('tbody tr').filter({ hasText: 'Ancien échec email' });
+  await expect(old.getByText('Email : public@atelier-fixture.fr', { exact: true })).toHaveCount(1);
+  await expect(old.getByText('Téléphone : 0123456789', { exact: true })).toHaveCount(1);
+  await old.getByRole('button', { name: 'Voir la fiche' }).click();
   const drawer = page.getByRole('complementary', { name: 'Fiche prospect' });
-  await expect(drawer.getByRole('button', { name: search, exact: true })).toBeEnabled();
+  await expect(drawer).toContainText('Erreur email historique');
+  await drawer.getByRole('button', { name: 'Fermer la fiche' }).click();
+  const row = page.locator('tbody tr').filter({ hasText: 'Contact public' });
+  await row.getByRole('button', { name: 'Voir la fiche' }).click();
+  await expect(drawer.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeDisabled();
+  await drawer.getByRole('button', { name: search, exact: true }).click();
+  await expect(drawer.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeEnabled();
+  await expect(drawer).toContainText('Email public trouvé');
   await expect(drawer.getByLabel('Adresse email du prospect')).toHaveValue('public@atelier-fixture.fr');
+  await expect(row).not.toContainText('Email public trouvé');
   await page.reload(); expect(api.calls).toEqual(['found']); expect(api.errors).toEqual([]);
 });
 
@@ -227,9 +190,13 @@ test('missing URL, opposition, demo and archive stay blocked; drawer lookup is e
   const api = await fixture(page);
   for (const name of ['Sans site', 'Opposition', 'Démo']) {
     const row = page.locator('tbody tr').filter({ hasText: name });
-    await expect(row.getByRole('button', { name: search, exact: true })).toBeDisabled();
+    await expect(row.getByRole('button', { name: search, exact: true })).toHaveCount(0);
+    await row.getByRole('button', { name: 'Voir la fiche' }).click();
+    const guarded = page.getByRole('complementary', { name: 'Fiche prospect' });
+    await expect(guarded.getByRole('button', { name: search, exact: true })).toBeDisabled();
+    await guarded.getByRole('button', { name: 'Fermer la fiche' }).click();
   }
-  await expect(page.locator('tbody tr').filter({ hasText: 'Sans site' })).toContainText('Aucun site renseigné · ajout manuel possible');
+  await expect(page.locator('tbody tr').filter({ hasText: 'Sans site' })).not.toContainText('ajout manuel possible');
   await page.locator('tbody tr').filter({ hasText: 'Contact public' }).getByRole('button', { name: 'Voir la fiche' }).click();
   const drawer = page.getByRole('complementary', { name: 'Fiche prospect' });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -238,29 +205,37 @@ test('missing URL, opposition, demo and archive stay blocked; drawer lookup is e
   await drawer.getByRole('button', { name: search, exact: true }).click();
   await expect(drawer.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeEnabled();
   await drawer.getByRole('button', { name: 'Fermer la fiche' }).click();
+  await expect(page.locator('body')).toHaveJSProperty('scrollWidth', 390);
+  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 1512, height: 1100 });
   await page.getByRole('button', { name: 'Archives 1', exact: true }).click();
   await expect(page.getByRole('button', { name: batch, exact: true })).toHaveCount(0);
-  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true })).toBeDisabled();
+  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true })).toHaveCount(0);
+  await page.locator('tbody').getByRole('button', { name: 'Voir la fiche' }).click();
+  await expect(drawer.getByRole('button', { name: search, exact: true })).toBeDisabled();
   expect(api.calls).toEqual(['found']);
 });
 
 test('stale readback never unlocks email; failures and not found stay retryable without sending', async ({ page }) => {
   const api = await fixture(page);
   const row = page.locator('tbody tr').filter({ hasText: 'Contact public' });
+  await row.getByRole('button', { name: 'Voir la fiche' }).click();
+  const drawer = page.getByRole('complementary', { name: 'Fiche prospect' });
   api.persist(false);
-  await row.getByRole('button', { name: search, exact: true }).click();
+  await drawer.getByRole('button', { name: search, exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('n’a pas été confirmée');
-  await expect(row.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeDisabled();
+  await expect(drawer.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeDisabled();
   api.persist(true); api.outcome('failed');
-  await row.getByRole('button', { name: search, exact: true }).click();
-  await expect(row).toContainText('Lecture du site impossible');
+  await drawer.getByRole('button', { name: search, exact: true }).click();
+  await expect(drawer).toContainText('Lecture du site impossible');
   await expect(page.getByRole('alert')).toContainText('Lecture du site impossible');
   api.outcome('not_found');
-  await row.getByRole('button', { name: search, exact: true }).click();
-  await expect(row).toContainText('Aucun email public trouvé sur les pages consultées');
-  await expect(row.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeDisabled();
-  await expect(row.getByRole('button', { name: search, exact: true })).toBeEnabled();
+  await drawer.getByRole('button', { name: search, exact: true }).click();
+  await expect(drawer).toContainText('Aucun email public trouvé sur les pages consultées');
+  await expect(drawer.getByRole('button', { name: 'Préparer le prompt email · default' })).toBeDisabled();
+  await expect(drawer.getByRole('button', { name: search, exact: true })).toBeEnabled();
+  await expect(row).not.toContainText('Lecture du site impossible');
+  await expect(row).not.toContainText('Aucun email public trouvé');
   expect(api.calls).toEqual(['found', 'found', 'found']);
 });
 
@@ -269,7 +244,7 @@ test('batch explicitly visits at most 25 displayed eligible missing or invalid e
   expect(api.calls).toEqual([]);
   await page.getByRole('button', { name: batch, exact: true }).click();
   await expect(page.getByRole('button', { name: batch, exact: true })).toBeDisabled();
-  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true }).first()).toBeDisabled();
+  await expect(page.locator('tbody').getByRole('button', { name: search, exact: true })).toHaveCount(0);
   await expect(page.locator('.contact-check-batch')).toContainText('23 trouvé(s) · 1 introuvable(s) · 1 échec(s)', { timeout: 25000 });
   expect(api.calls).toHaveLength(25); expect(new Set(api.calls).size).toBe(25); expect(api.maxActive()).toBe(1);
   for (const id of ['missing', 'refused', 'demo', 'archive', 'valid']) expect(api.calls).not.toContain(id);

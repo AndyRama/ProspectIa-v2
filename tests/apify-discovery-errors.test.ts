@@ -1,3 +1,4 @@
+import { emailPricing, emailMetadataResponse } from './fixtures/apify-email';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -11,7 +12,7 @@ test("Apify HTTP errors expose only controlled French reasons and preserve exact
   const { discoveryApi, planApifyDiscovery, startApifyDiscovery } = await import("../server/services/apifyDiscovery");
   const original = globalThis.fetch;
   const token = "fixture-private-token+unsafe";
-  const properties = Object.fromEntries(Object.entries({ mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
+  const properties = Object.fromEntries(Object.entries({ requireEmail: "boolean", skipClosed: "boolean", countryCode: "string", mode: "string", query: "string", location: "string", onlyNew: "boolean", monitorId: "string", excludePlaceIds: "array", excludePlaceUrls: "array", maxResults: "integer", language: "string", includeReviews: "boolean", includePhotos: "boolean", includeLeadScore: "boolean", debugMode: "boolean" }).map(([key, type]) => [key, { type, ...(type === "array" ? { items: { type: "string" } } : {}) }]));
   const args = { city: "Bordeaux", activity: "artisan", keyword: "menuisier", engine: "voice" as const, max: 25, budget: 1 };
   try {
     await t.test("quoted JSON credentials and HTML-split tokens never expose provider details", async (t) => {
@@ -51,6 +52,7 @@ test("Apify HTTP errors expose only controlled French reasons and preserve exact
       await assert.rejects(discoveryApi("acts/fixture", token), /HTTP 402\..*crédit/i);
     });
     await t.test("definite HTTP rejection releases own lock; 429, 500 and uncertain transport retain it", async () => {
+      globalThis.fetch = async (url) => emailMetadataResponse(url);
       const plan = await planApifyDiscovery(args);
       for (const status of [400, 401, 402, 403, 404, 429, 500, 0]) {
         await setSetting("apifyPending", null);
@@ -61,7 +63,7 @@ test("Apify HTTP errors expose only controlled French reasons and preserve exact
             if (!status) throw Error(`transport failed ${token}`);
             return Response.json({ error: { message: "Provider fixture reason" } }, { status });
           }
-          return Response.json({ data: String(url).endsWith("/builds/default") ? { buildNumber: "1.0.32", actorDefinition: { input: { properties } } } : { id: "uU8ybh0dgvI68Q3o2", currentPricingInfo: { pricingModel: "PAY_PER_EVENT" } } });
+          return emailMetadataResponse(url);
         };
         const definite = [400, 401, 402, 403, 404].includes(status);
         await assert.rejects(startApifyDiscovery(token, { ...args, planId: plan.planId, requestId: `reject-${status}` }), (error: any) => {

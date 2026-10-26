@@ -70,18 +70,6 @@ type Settings = {
   pending: any;
   onboarded: boolean;
 };
-type AutoContactJob = { searchId: string; ids: string[]; done: string[]; startedAt: string; status: "pending" | "paused" | "completed" };
-const AUTO_CONTACT_KEY = "prospectai:approved-contact-lots:v1";
-function readAutoContactJobs(): Record<string, AutoContactJob> {
-  try {
-    const value = JSON.parse(localStorage.getItem(AUTO_CONTACT_KEY) || "{}");
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter(([id, item]) => {
-      const job = item as AutoContactJob;
-      return job && job.searchId === id && Array.isArray(job.ids) && job.ids.length <= 2000 && job.ids.every(x => typeof x === "string") && Array.isArray(job.done) && job.done.every(x => typeof x === "string") && Number.isFinite(Date.parse(job.startedAt)) && ["pending", "paused", "completed"].includes(job.status);
-    })) as Record<string, AutoContactJob>;
-  } catch { return {}; }
-}
 type State = { prospects: Prospect[]; searches: SearchRecord[]; drafts: Draft[]; handoffs: HandoffSummary[]; settings: Settings };
 const engines = {
   website: {
@@ -157,6 +145,38 @@ function Link({ href, children }: { href: string; children: React.ReactNode }) {
     <span>{children}</span>
   );
 }
+type DiscoveryPricingEvent = { eventTitle?: string; eventDescription?: string; eventPriceUsd?: number; eventTieredPricingUsd?: Record<string, { tieredEventPriceUsd: number }> };
+type DiscoveryPlan = {
+  planId: string; actor: string; city: string; query: string; max: number; budget: number;
+  excludedCount: number; unidentifiedCount: number; unresolvedUrlCount: number; warnings: string[];
+  blocked: boolean; blockedReason: string | null; coverage?: { requireEmail: boolean; email?: string };
+  pricing?: { currency: string; events: Record<string, DiscoveryPricingEvent>; tier?: string; source: string; effectiveAt: string | null; accountTierVerified: boolean };
+};
+function discoveryBlockReason(plan: DiscoveryPlan): string {
+  if (plan.blocked) return plan.blockedReason || "Collecte bloquée par le fournisseur.";
+  if (plan.blocked !== false || !/^[a-f0-9]{64}$/.test(plan.planId) || !plan.actor?.trim() || plan.coverage?.requireEmail !== true) return "Aperçu non validé : préparez un nouveau plan fournisseur.";
+  const pricing = plan.pricing;
+  const validRate = (rate: unknown) => typeof rate === "number" && Number.isFinite(rate) && rate >= 0;
+  if (!pricing || pricing.currency !== "USD" || !safeUrl(pricing.source) || !pricing.events?.["apify-actor-start"] || !pricing.events?.["apify-default-dataset-item"] || Object.values(pricing.events).some(event => {
+    if (event.eventPriceUsd != null) return !validRate(event.eventPriceUsd);
+    const rates = Object.values(event.eventTieredPricingUsd || {});
+    return !rates.length || rates.some(rate => !validRate(rate?.tieredEventPriceUsd));
+  })) return "Tarification officielle indisponible ou non validée : lancement verrouillé. Préparez un nouvel aperçu.";
+  return "";
+}
+function DiscoveryRates({ plan }: { plan: DiscoveryPlan }) {
+  if (!plan.pricing || discoveryBlockReason({ ...plan, blocked: false })) return null;
+  const pricing = plan.pricing;
+  return <section aria-label="Tarification officielle Apify">
+    <h3>Tarification officielle · USD</h3>
+    <p>Paliers publics, FREE comme repère : tarif du compte non certifié. Le palier effectif du compte n’est pas vérifié.</p>
+    <ul>{Object.entries(pricing.events).map(([key, event]) => <li key={key}>
+      <strong>{key === "apify-actor-start" ? "Démarrage" : key === "apify-default-dataset-item" ? "Résultat" : event.eventTitle || key}</strong> : {event.eventPriceUsd != null ? `${event.eventPriceUsd} USD / événement` : Object.entries(event.eventTieredPricingUsd || {}).map(([tier, rate]) => `${tier} : ${rate.tieredEventPriceUsd} USD`).join(" · ")}
+      {event.eventDescription && <p>{event.eventDescription}</p>}
+    </li>)}</ul>
+    <p><Link href={pricing.source}>Source officielle des tarifs</Link> · Date d’effet : {pricing.effectiveAt || "non communiquée"}.</p>
+  </section>;
+}
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [state, setState] = useState<State | null>(null),
     [page, setPage] = useState<Page>("search"),
@@ -188,21 +208,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   const busyRef = useRef(false);
   const contactCancelRef = useRef(false);
-  const activeAutoContactJobRef = useRef<string | null>(null);
-  const [autoContactJobs, setAutoContactJobs] = useState(readAutoContactJobs);
-  const autoContactJobsRef = useRef(autoContactJobs);
-  const saveAutoContactJob = (job: AutoContactJob) => {
-    const jobs = { ...autoContactJobsRef.current, [job.searchId]: job };
-    // Persist before starting the next request. No email or credential is stored here.
-    localStorage.setItem(AUTO_CONTACT_KEY, JSON.stringify(jobs));
-    autoContactJobsRef.current = jobs;
-    setAutoContactJobs(jobs);
-  };
-  const [autoContactNote, setAutoContactNote] = useState("");
   const [contactStopping, setContactStopping] = useState(false);
   const [contactBatch, setContactBatch] = useState<{ found: number; not_found: number; failed: number; total: number; stopped?: boolean; lastError?: string } | null>(null);
   const [siteBatch, setSiteBatch] = useState<{ success: number; failed: number; total: number; lastError?: string } | null>(null);
-  const [discovery, setDiscovery] = useState<{ plan: { planId: string; actor: string; city: string; query: string; max: number; budget: number; excludedCount: number; unidentifiedCount: number; warnings: string[] }; input: { city: string; activity: string; keyword: string; engine: Engine; max: number; budget: number }; requestId: string } | null>(null);
+  const [discovery, setDiscovery] = useState<{ plan: DiscoveryPlan; input: { city: string; activity: string; keyword: string; engine: Engine; max: number; budget: number }; requestId: string } | null>(null);
   const discoveryInput = { city, activity, keyword, engine, max: Math.min(25, state?.settings.limits.max ?? 25), budget };
   const criteriaKey = JSON.stringify(discoveryInput);
   const criteriaRef = useRef(criteriaKey);
@@ -215,7 +224,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     if (criteriaRef.current === key) setDiscovery({ plan, input: discoveryInput, requestId: crypto.randomUUID() });
   });
   const confirmDiscovery = () => {
-    if (!discovery || busyRef.current || state?.settings.pending || !state?.settings.apifyConfigured || JSON.stringify(discovery.input) !== criteriaRef.current) return;
+    if (!discovery || discoveryBlockReason(discovery.plan) || busyRef.current || state?.settings.pending || !state?.settings.apifyConfigured || JSON.stringify(discovery.input) !== criteriaRef.current) return;
     const intention = discovery;
     return task("discovery-start", async () => {
       try {
@@ -324,67 +333,28 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const stopContactBatch = () => {
     contactCancelRef.current = true;
     setContactStopping(true);
-    const job = activeAutoContactJobRef.current && autoContactJobsRef.current[activeAutoContactJobRef.current];
-    if (job) {
-      // A reload during the in-flight request must already see the explicit stop.
-      try { saveAutoContactJob({ ...job, status: "paused" }); }
-      catch (error) { setNotice({ text: `Arrêt non enregistré : checkpoint local indisponible. ${(error as Error).message}`, error: true }); }
-    }
   };
-  // Shared queue body: callers own the application lock (including the poll task).
-  const runContactQueue = async (queue: Prospect[], job?: AutoContactJob, noSite = 0) => {
+  // Contact reads are only started by an explicit drawer or batch action.
+  const runContactQueue = async (queue: Prospect[]) => {
     contactCancelRef.current = false;
     setContactStopping(false);
     setBusy("contact-check-batch");
-    activeAutoContactJobRef.current = job?.searchId || null;
-    let checkpoint = job ? { ...job, done: [...job.done] } : undefined;
     const summary = { found: 0, not_found: 0, failed: 0, total: queue.length, stopped: false, lastError: "" };
     setContactBatch({ ...summary });
     try {
       for (const p of queue) {
         if (contactCancelRef.current) break;
-        if (checkpoint) {
-          checkpoint = { ...checkpoint, done: [...checkpoint.done, p.id] };
-          saveAutoContactJob(checkpoint);
-        }
         try { summary[await checkContact(p)]++; }
         catch (error) { summary.failed++; summary.lastError = `${p.name} : ${(error as Error).message}`; }
         setContactBatch({ ...summary });
       }
       summary.stopped = contactCancelRef.current && summary.found + summary.not_found + summary.failed < summary.total;
-      if (checkpoint) saveAutoContactJob({ ...checkpoint, status: contactCancelRef.current ? "paused" : "completed" });
-    } catch (error) {
-      summary.stopped = true;
-      summary.lastError = `Checkpoint local indisponible : ${(error as Error).message}`;
-      if (checkpoint) {
-        const jobs = { ...autoContactJobsRef.current, [checkpoint.searchId]: { ...checkpoint, status: "paused" as const } };
-        autoContactJobsRef.current = jobs; setAutoContactJobs(jobs);
-      }
     } finally {
       setContactBatch({ ...summary });
-      activeAutoContactJobRef.current = null;
       setContactStopping(false);
     }
     const unprocessed = summary.total - summary.found - summary.not_found - summary.failed;
-    const report = `${summary.stopped ? "Lot arrêté. " : ""}${summary.found} emails récupérés · ${summary.not_found + summary.failed + unprocessed} indisponibles · ${noSite} sans site. ${summary.failed} échec(s) · ${unprocessed} non traité(s). ${summary.lastError}`;
-    if (job) setAutoContactNote(`Collecte enregistrée. ${report} Aucun nouvel appel Apify ni envoi.`);
-    setNotice({ text: report, error: summary.failed > 0 || !!summary.lastError });
-  };
-  const enrichNewPoll = async (r: any, saved: State) => {
-    if (r.pending || r.cached !== false || r.runStatus !== "SUCCEEDED" || r.search?.provider !== "Apify" || autoContactJobsRef.current[r.search.id]) return;
-    const search = saved.searches.find(s => s.id === r.search.id && s.provider === "Apify");
-    if (!search) {
-      setAutoContactNote("Collecte reçue, mais enregistrement non confirmé : aucun site consulté. Les résultats ne sont pas supprimés.");
-      return;
-    }
-    const ids = new Set<string>(search.ids);
-    const lot = saved.prospects.filter(p => ids.has(p.id) && !p.duplicateOf && !p.archived && !p.demo && !p.doNotContact);
-    const queue = lot.filter(p => contactEligible(p) && !emailPromptEligible(p));
-    const job: AutoContactJob = { searchId: search.id, ids: [...ids], done: [], startedAt: new Date().toISOString(), status: "pending" };
-    setAutoContactNote("Collecte enregistrée, récupération contacts… sans nouvel appel Apify ni paiement.");
-    try { saveAutoContactJob(job); }
-    catch { setAutoContactNote("Collecte enregistrée, récupération interrompue : checkpoint local indisponible. Aucune fiche supprimée ; rattrapage possible sur toute la base sans relancer Apify."); return; }
-    await runContactQueue(queue, job, lot.filter(p => !p.website.trim()).length);
+    setNotice({ text: `${summary.stopped ? "Lot arrêté. " : ""}${summary.found} emails récupérés · ${summary.not_found + summary.failed + unprocessed} indisponibles · ${summary.failed} échec(s) · ${unprocessed} non traité(s). ${summary.lastError}`, error: summary.failed > 0 });
   };
   const checkSite = async (p: Prospect) => {
     if (p.archived || p.demo || !p.website.trim()) return;
@@ -453,7 +423,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     setActiveIds(r.search.ids);
     setSearchRecord(r.search);
     setNotice({
-      text: r.cached ? `${r.search.count} fiche(s) enregistrées réouvertes. Aucune nouvelle collecte ni dépense.` : r.search.provider === "Apify" ? `${r.search.count} fiche(s) ${r.enriched ? "enrichies par identifiants validés" : "collectées par Apify · benthepythondev/google-maps-business-scraper"}. Coût retourné par Apify : ${r.search.cost === null ? "non communiqué" : `${r.search.cost} USD`}.` : `${r.search.count} fiche(s) uniques · ${r.search.newCount ?? r.search.count} nouvelle(s) · ${r.search.knownCount ?? 0} déjà connue(s).${r.remaining !== undefined ? ` ${r.remaining} candidat(s) en réserve. Aucun crédit Apify dépensé.` : ""}`,
+      text: r.cached ? `${r.search.count} fiche(s) enregistrées réouvertes. Aucune nouvelle collecte ni dépense.` : r.search.provider === "Apify" ? `${r.search.count} fiche(s) ${r.enriched ? "enrichies par identifiants validés" : "collectées par Apify"}. Coût retourné par Apify : ${r.search.cost === null ? "non communiqué" : `${r.search.cost} USD`}.` : `${r.search.count} fiche(s) uniques · ${r.search.newCount ?? r.search.count} nouvelle(s) · ${r.search.knownCount ?? 0} déjà connue(s).${r.remaining !== undefined ? ` ${r.remaining} candidat(s) en réserve. Aucun crédit Apify dépensé.` : ""}`,
     });
   };
 
@@ -474,12 +444,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       await refresh(); go("handoffs"); setPreview(result);
       setNotice({ text: "Un prompt email pour default est prêt. Aucun brouillon Gmail créé, aucun message envoyé ni relance activée par ProspectAI." });
     });
-  const emailAction = (p: Prospect, full = false) => <div>
-    <button className={full ? "button primary full" : "button ghost small"} disabled={!!busy || !emailPromptEligible(p)} aria-describedby={`email-reason-${full ? "drawer" : "row"}-${p.id}`} onClick={() => generate(p)}>
+  const emailAction = (p: Prospect) => <div>
+    <button className="button primary full" disabled={!!busy || !emailPromptEligible(p)} aria-describedby={`email-reason-drawer-${p.id}`} onClick={() => generate(p)}>
       {busy === "email-prompt" ? <LoaderCircle size={16} className="spin" /> : <Mail size={16} />}Préparer le prompt email · default
     </button>
-    <small id={`email-reason-${full ? "drawer" : "row"}-${p.id}`} className="source-note" style={{ display: "block", whiteSpace: "normal", maxWidth: full ? undefined : 260 }}>{emailBlockReason(p) || "Transfert manuel · aucun envoi ni activation. Premier mail à valider ; relances J3/J7/J15/J31 à approuver par campagne."}</small>
-    {!full && !p.archived && !p.demo && !p.doNotContact && !emailPromptEligible(p) && <button className="text-link" onClick={() => setOpened(p)}>{p.email ? "Corriger l’email" : "Compléter l’email"}</button>}
+    <small id={`email-reason-drawer-${p.id}`} className="source-note" style={{ display: "block", whiteSpace: "normal" }}>{emailBlockReason(p) || "Transfert manuel · aucun envoi ni activation. Premier mail à valider ; relances J3/J7/J15/J31 à approuver par campagne."}</small>
   </div>;
   const createHandoff = (p: Prospect) =>
     task("handoff", async () => {
@@ -911,8 +880,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                                 r.runStatus +
                                 ". Les résultats disponibles sont conservés.",
                             });
-                          const saved = await refresh();
-                          await enrichNewPoll(r, saved);
+                          await refresh();
                         })
                       }
                     >
@@ -1112,12 +1080,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                     <button className="button ghost small" disabled={!!busy || !contactCandidates.length} onClick={checkDisplayedContacts}>Récupérer les emails des sites affichés</button>
                     {busy === "contact-check-batch" && <button className="button ghost small" disabled={contactStopping} onClick={stopContactBatch}>{contactStopping ? "Arrêt demandé…" : "Arrêter après le site en cours"}</button>}
                   </div>
-                  <p>L’Actor Google Maps ne fournit pas d’emails. Cette collecte publique sur les sites est distincte, sans nouvel appel Apify ni paiement Apify, sans suppression ni envoi de message.</p>
+                  <p>L’Actor EMAIL recherche déjà les emails publiés sur les sites. Cette recherche locale complémentaire est distincte, uniquement sur demande explicite, sans nouvel appel Apify ni paiement Apify, sans suppression ni envoi de message.</p>
                   <p>Toute la base : {allContactCandidates.length} site(s) éligible(s), indépendamment de la recherche et des filtres · 2000 maximum par lot.{allContactCandidates.length > 2000 && ` Attention : ${allContactCandidates.length - 2000} candidat(s) au-delà de la limite ne seront pas traités dans ce lot.`}</p>
                   <p>Base active hors démos : {contactIgnored(contactCatalogue)} Affichés : {contactIgnored(rows)}</p>
                   <p>Emails manquants ou invalides uniquement · choix affichés : 25 sites maximum · traitement un à un, accueil et pages de contact, jusqu’à 4 pages et 15 secondes par site. Aucun résultat garanti.</p>
-                  {autoContactNote && <p>{autoContactNote} Aucun site n’est consulté automatiquement au rechargement ou à la réouverture de l’historique. Si la page est fermée pendant une requête, les résultats déjà enregistrés restent conservés ; rattrapage possible en un clic sur toute la base.</p>}
-                  {Object.values(autoContactJobs).some(job => job.status === "paused") && <p>Un lot automatique a été arrêté : aucune reprise automatique après rechargement. Pour retenter les emails encore manquants, utilisez l’action sur la base existante, sans relancer Apify.</p>}
                   <p>Chaque résultat est enregistré puis relu dans la base. Un nouveau clic exclut les emails devenus valides ; les introuvables et échecs peuvent être retentés, ce n’est pas une reprise exacte du lot précédent.</p>
                   {contactBatch && <p>{contactBatch.found} trouvé(s) · {contactBatch.not_found} introuvable(s) · {contactBatch.failed} échec(s) · {contactBatch.found + contactBatch.not_found + contactBatch.failed}/{contactBatch.total} traités{busy === "contact-check-batch" ? contactStopping ? " · Arrêt après la requête courante…" : " · En cours…" : contactBatch.stopped ? " · Arrêté" : " · Terminé"}{contactBatch.lastError && <span className="site-check-error"> · {contactBatch.lastError}</span>}</p>}
                 </div>}
@@ -1244,14 +1210,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                             </div>
                           </td>
                           <td>
-                            <span
+                            {p.webStatus !== "Non vérifié" && <span
                               className={
                                 "web-badge " + (p.audit ? "verified" : "")
                               }
                             >
                               <Globe size={12} />
                               {p.webStatus}
-                            </span>
+                            </span>}
                             {siteCheckAction(p)}
                           </td>
                           <td>
@@ -1302,9 +1268,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                                 <ArrowRight size={15} />
                               </button>
                               {archiveButton(p)}
-                              {!p.archived && emailAction(p)}
                             </div>
-                            {contactCheckAction(p)}
                           </td>
                         </tr>
                       ))}
@@ -1853,7 +1817,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   ? "Préparation…"
                   : engine === "website" ? "Préparer le prompt refonte · coder" : "Préparer le prompt Hermès"}
               </button>
-              {emailAction(opened, true)}
+              {emailAction(opened)}
             </div>
           </aside>
         </>
@@ -1944,22 +1908,24 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       {discovery && <Modal title="Recherche Apify · vérifier avant de payer" onClose={() => setDiscovery(null)}>
         <p><strong>{discovery.plan.city} · {typeof discovery.plan.query === "string" ? discovery.plan.query : discovery.input.keyword || activityLabel(discovery.input.activity)}</strong></p>
         <p>Maximum demandé : {discovery.plan.max} entreprises (25 au maximum). Budget d’arrêt demandé : {discovery.plan.budget.toFixed(2)} USD.</p>
-        <p>Fournisseur : Apify · Actor <code>benthepythondev/google-maps-business-scraper</code>.</p>
-        <div className="banner"><AlertCircle size={20} /><span><strong>Google Maps ne fournit pas d’emails.</strong> Après réception et enregistrement du nouveau lot, la récupération des emails démarre automatiquement depuis les sites publics éligibles, sans nouveau run ni paiement Apify. Email non garanti ; sans URL de site exploitable, cette récupération est impossible. Aucun message Gmail n’est envoyé. Vous pouvez arrêter après le site en cours.</span></div>
-        <p>Champs recherchés par Maps selon disponibilité : nom, activité, adresse, ville, téléphone, site et identifiant Google. Les emails sont recherchés automatiquement ensuite sur les sites publics, pas fournis directement par Maps. Les valeurs absentes sont signalées dans la fiche, avec source et date lorsqu’elles sont disponibles. Aucun contact complet ni nombre de nouveaux prospects n’est garanti.</p>
-        <p>{discovery.plan.excludedCount} identifiants ou URL connus exclus avant facturation. {discovery.plan.unidentifiedCount} fiches sans identité Google exploitable : tous les doublons physiques ne peuvent pas être garantis exclus.</p>
+        <p>Fournisseur : Apify · Actor <code>{discovery.plan.actor || "non identifié"}</code>.</p>
+        <div className="banner"><AlertCircle size={20} /><span><strong>Recherche EMAIL + coordonnées · requireEmail=true.</strong> L’Actor recherche les emails publiés sur les sites des entreprises Google Maps ; email non testé pour la délivrabilité. Email non garanti : aucun nombre de résultats ni contact complet n’est garanti. Aucun message Gmail n’est envoyé. Aucun site n’est consulté localement à la réception du lot. Toute recherche locale complémentaire exige une demande explicite ; sans URL exploitable, cette récupération est impossible.</span></div>
+        <p>Champs recherchés selon disponibilité : nom, activité, adresse, ville, téléphone, site et identifiant Google, avec email publié sur le site. Les valeurs absentes sont signalées dans la fiche, avec source et date lorsqu’elles sont disponibles.</p>
+        <p>{discovery.plan.excludedCount} identifiants connus exclus avant facturation. {discovery.plan.unidentifiedCount} fiches sans identité Google exploitable · {discovery.plan.unresolvedUrlCount ?? 0} URL historique(s) non résolue(s).</p>
+        <DiscoveryRates plan={discovery.plan} />
         <p>La mémoire fournisseur « only-new » et les exclusions sont transmises avant facturation des résultats. Les 25 résultats ne sont pas garantis. Des frais de lancement sont possibles même avec 0 résultat.</p>
-        <p>Le budget est un seuil d’arrêt transmis à Apify, pas un plafond absolu de facture. Cet aperçu est local : aucune collecte n’est lancée.</p>
+        <p>Budget total maximal demandé à Apify (maxTotalChargeUsd) : {discovery.plan.budget.toFixed(2)} USD. Ce seuil d’arrêt n’est pas une garantie absolue de facture : un événement facturable peut le dépasser. L’aperçu ne lance aucune collecte ; le backend revalide le plan courant et son empreinte avant tout lancement.</p>
+        {discoveryBlockReason(discovery.plan) && <p role="alert" id="discovery-block-reason">{discoveryBlockReason(discovery.plan)}</p>}
         {discovery.plan.warnings.map((warning, i) => <p key={i}>{warning}</p>)}
         <label>Modifier le budget (invalide cet aperçu)<input aria-label="Modifier le budget Apify" type="number" min="0.05" max={state.settings.limits.budget} step="0.05" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label>
         <div className="button-group">
           <button className="button ghost" onClick={() => setDiscovery(null)}>Annuler</button>
-          {state.settings.apifyConfigured ? <button className="button primary" disabled={!!busy || !!state.settings.pending || criteriaKey !== JSON.stringify(discovery.input)} onClick={confirmDiscovery}>Confirmer et lancer la collecte Apify</button> : <button className="button primary" onClick={() => { setDiscovery(null); go("settings"); }}>Configurer Apify dans les Paramètres</button>}
+          {state.settings.apifyConfigured ? <button className="button primary" disabled={!!busy || !!state.settings.pending || !!discoveryBlockReason(discovery.plan) || criteriaKey !== JSON.stringify(discovery.input)} aria-describedby={discoveryBlockReason(discovery.plan) ? "discovery-block-reason" : undefined} onClick={confirmDiscovery}>Confirmer et lancer la collecte Apify</button> : <button className="button primary" onClick={() => { setDiscovery(null); go("settings"); }}>Configurer Apify dans les Paramètres</button>}
         </div>
       </Modal>}
       {enrichment && <Modal title="Apify · vérifier avant de payer" onClose={() => setEnrichment(null)}>
         <p>Champs recherchés par Maps selon disponibilité : nom, adresse, ville, téléphone, site et identifiant Google. Les valeurs absentes restent signalées ; aucun contact n’est inventé.</p>
-        <div className="banner"><AlertCircle size={20} /><span>Google Maps ne fournit pas d’emails. Après réception et enregistrement du nouveau lot, les emails sont recherchés automatiquement sur les sites publics éligibles, sans nouveau paiement Apify. Email non garanti ; sans URL exploitable, récupération impossible. Aucun envoi Gmail. Arrêt possible après le site en cours.</span></div>
+        <div className="banner"><AlertCircle size={20} /><span>Google Maps ne fournit pas d’emails. La recherche des emails sur les sites publics éligibles nécessite une demande explicite depuis la fiche ou les actions sur la base existante, sans nouveau paiement Apify. Email non garanti ; sans URL exploitable, récupération impossible. Aucun envoi Gmail. Aucun site consulté à la réception du lot.</span></div>
         <p>{enrichment.plan.message}</p>
         <p>{enrichment.plan.excluded} déjà collecté(s) ou réservé(s) exclu(s) · {enrichment.plan.missing} sans identifiant exploitable · {enrichment.plan.remaining} pour un lot ultérieur.</p>
         <p className="source-note">Les recherches Google Maps par mot-clé sont bloquées. Ce mode ne traite que des Place IDs fournis dans vos candidats importés, vérifiés avant l’appel. Les détails et contacts sont facturés selon Apify.</p>
@@ -2484,7 +2450,7 @@ function SettingsPage({
             <div className="banner">
               <ShieldCheck size={19} />
               <p>
-                La recherche Apify utilise l’Actor benthepythondev/google-maps-business-scraper : aperçu local, mémoire only-new et exclusions avant facturation des résultats, puis votre confirmation explicite. Les 25 résultats ne sont pas garantis ; des frais de lancement restent possibles même avec 0 résultat. L’enrichissement ciblé historique utilise Compass avec des identifiants validés.
+                La recherche Apify utilise l’Actor benthepythondev/google-maps-email-scraper (4MTxdHfGoKTLDoTrD), requireEmail=true : emails publiés sur les sites, non testés pour la délivrabilité. Aperçu avec tarification officielle, mémoire only-new et exclusions avant facturation des résultats, puis votre confirmation explicite. Les 25 résultats ne sont pas garantis ; des frais de lancement restent possibles même avec 0 résultat. Les paliers publics FREE sont un repère, pas un tarif du compte certifié. Aucun extracteur local ne se lance à réception. L’enrichissement ciblé historique utilise Compass avec des identifiants validés.
                 Le budget est transmis comme seuil d’arrêt à
                 Apify ; un événement facturable peut dépasser ce seuil. La
                 collecte est verrouillée si le schéma ou la tarification n’est

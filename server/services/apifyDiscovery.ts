@@ -4,8 +4,11 @@ import type { Engine, Search } from "../types";
 import { resolveSearch } from "../searches";
 import { makeQuery } from "../searchQuery";
 import { billedPlaceIds, validPlaceId } from "./apifyPlan";
-export const discoveryActor = "benthepythondev~google-maps-business-scraper";
-export const discoveryActorId = "uU8ybh0dgvI68Q3o2";
+// Kept explicit for already-paid, durable business-Actor pending runs.
+export const legacyDiscoveryActor = "benthepythondev~google-maps-business-scraper";
+export const legacyDiscoveryActorId = "uU8ybh0dgvI68Q3o2";
+export const discoveryActor = "benthepythondev~google-maps-email-scraper";
+export const discoveryActorId = "4MTxdHfGoKTLDoTrD";
 export type ApifyDiscoveryCriteria = {
   city: string;
   activity: string;
@@ -36,10 +39,26 @@ export function safeMapsUrl(s: unknown): s is string {
     return false;
   }
 }
+// Decode only validated Google URL identity slots, never display names or
+// coordinates. Decimal CIDs stay strings (including values above 2^53).
+export function mapsUrlIds(value: string): string[] {
+  if (!safeMapsUrl(value)) return [];
+  try {
+    const u = new URL(value), found = new Set<string>();
+    for (const key of ['cid', 'ludocid', 'ftid', 'query_place_id', 'place_id']) {
+      const id = u.searchParams.get(key); if (safeGoogleId(id)) found.add(id);
+    }
+    const query = u.searchParams.get('q') || u.searchParams.get('query') || '';
+    if (query.startsWith('place_id:') && safeGoogleId(query.slice(9))) found.add(query.slice(9));
+    const decoded = decodeURIComponent(u.pathname + u.search);
+    for (const m of decoded.matchAll(/!(?:1s|19s)([^!&#?]+)/g)) if (safeGoogleId(m[1])) found.add(m[1]);
+    return [...found].sort();
+  } catch { return []; }
+}
 export async function discoverySnapshot() {
-  const ids = new Set<string>(),
-    urls = new Set<string>();
+  const ids = new Set<string>(), urls = new Set<string>(), coveredUrls = new Set<string>();
   let unidentifiedCount = 0;
+  const unresolvedHistory = new Set<string>();
   const add = (v: unknown) => {
     if (safeGoogleId(v)) {
       ids.add(v);
@@ -47,7 +66,10 @@ export async function discoverySnapshot() {
     }
     if (safeMapsUrl(v)) {
       urls.add(v);
-      return true;
+      const converted = mapsUrlIds(v);
+      for (const id of converted) ids.add(id);
+      if (converted.length) coveredUrls.add(v);
+      return converted.length > 0;
     }
     return false;
   };
@@ -56,7 +78,7 @@ export async function discoverySnapshot() {
     const search = JSON.parse(String(row.data));
     if (search.provider === "Apify")
       for (const id of search.ids || [])
-        if (typeof id === "string" && id.startsWith("apify-")) add(id.slice(6));
+        if (typeof id === "string" && id.startsWith("apify-") && !add(id.slice(6))) unresolvedHistory.add(id);
   }
   const rows = (await db.execute("SELECT data FROM prospects")).rows;
   for (const row of rows) {
@@ -74,9 +96,21 @@ export async function discoverySnapshot() {
         identified = add(f?.value) || identified;
       if (safeMapsUrl(f?.url)) identified = add(f.url) || identified;
     }
-    if (!identified) unidentifiedCount++;
+    const rowUrls: string[] = [];
+    for (const f of Object.values(p.fields || {}) as any[]) {
+      for (const value of [f?.value, f?.url]) if (safeMapsUrl(value)) rowUrls.push(value);
+    }
+    if (identified) {
+      for (const url of rowUrls) coveredUrls.add(url);
+      unresolvedHistory.delete(p.id);
+    } else {
+      unidentifiedCount++;
+      unresolvedHistory.delete(p.id); // already counted as an unidentified row
+    }
   }
-  return { ids: [...ids].sort(), urls: [...urls].sort(), unidentifiedCount };
+  unidentifiedCount += unresolvedHistory.size;
+  const unresolvedUrls = [...urls].filter(url => !coveredUrls.has(url)).sort();
+  return { ids: [...ids].sort(), urls: [...urls].sort(), unidentifiedCount, unresolvedUrls };
 }
 async function validate(args: ApifyDiscoveryCriteria) {
   if (
@@ -102,8 +136,8 @@ async function validate(args: ApifyDiscoveryCriteria) {
 }
 async function context(args: ApifyDiscoveryCriteria) {
   await validate(args);
-  await claimSetting("apifyDiscoveryMonitorId", randomUUID());
-  const monitorId = await getSetting<string>("apifyDiscoveryMonitorId", "");
+  await claimSetting("apifyEmailDiscoveryMonitorId", randomUUID());
+  const monitorId = await getSetting<string>("apifyEmailDiscoveryMonitorId", "");
   if (!monitorId) throw Error("Mémoire Apify indisponible.");
   const snapshot = await discoverySnapshot();
   const effective = makeQuery({ ...args, paid: true });
@@ -119,9 +153,17 @@ async function context(args: ApifyDiscoveryCriteria) {
       effective.keyword || terms[effective.activity] || effective.activity,
     ),
     city = normalize(effective.city);
+  const verified = await verifyApifyDiscovery();
+  const input = {
+    mode: 'search', query, location: city, maxResults: args.max,
+    language: 'fr', countryCode: 'fr', requireEmail: true, skipClosed: true,
+    onlyNew: true, monitorId, excludePlaceIds: snapshot.ids, debugMode: false,
+  };
   const planId = createHash("sha256")
     .update(
       JSON.stringify({
+        actor: discoveryActor, actorId: discoveryActorId, input,
+        build: verified.build, schemaFingerprint: verified.schemaFingerprint, pricing: verified.pricing,
         query,
         city,
         activity: effective.activity,
@@ -133,22 +175,32 @@ async function context(args: ApifyDiscoveryCriteria) {
       }),
     )
     .digest("hex");
-  return { planId, query, city, monitorId, snapshot };
+  return { planId, query, city, monitorId, snapshot, input, verified };
 }
 export async function planApifyDiscovery(args: ApifyDiscoveryCriteria) {
   const c = await context(args);
   return {
     planId: c.planId,
     actor: discoveryActor.replace("~", "/"),
+    actorId: discoveryActorId,
+    build: c.verified.build,
+    schemaFingerprint: c.verified.schemaFingerprint,
+    pricing: c.verified.pricing,
+    coverage: { requireEmail: true, email: 'Email publié sur le site, non testé pour la délivrabilité', business: 'Nom, activité, adresse, ville, téléphone, site et identités Google selon disponibilité', monitorStore: 'google-maps-email-monitor' },
+    blocked: c.snapshot.unidentifiedCount > 0 || c.snapshot.unresolvedUrls.length > 0,
+    blockedReason: c.snapshot.unidentifiedCount > 0 || c.snapshot.unresolvedUrls.length > 0 ? 'Identités historiques non convertibles en exclusions exactes : migration bloquée pour éviter de repayer.' : null,
+    unresolvedUrlCount: c.snapshot.unresolvedUrls.length,
+    protection: { onlyNew: true, durableLock: true, confirmationRequired: true, maxResults: 25, singleSearch: true, maxTotalChargeUsd: args.budget },
     query: c.query,
     city: c.city,
     max: args.max,
     budget: args.budget,
-    excludedCount: c.snapshot.ids.length + c.snapshot.urls.length,
+    excludedCount: c.snapshot.ids.length,
     unidentifiedCount: c.snapshot.unidentifiedCount,
     warnings: [
       "Des frais de lancement Apify restent possibles même sans nouvelle entreprise.",
-      "25 résultats ne sont pas garantis ; une identité Google manquante ne peut pas être exclue avec certitude.",
+      "25 résultats ne sont pas garantis ; seuls les établissements avec un email publié sont demandés. Aucune délivrabilité garantie.",
+      "La mémoire de cet Actor email est distincte de celle de l’ancien Actor business ; les exclusions exactes du catalogue restent nécessaires.",
     ],
   };
 }
@@ -175,7 +227,7 @@ export async function discoveryApi(
     const response = await fetch("https://api.apify.com/v2/" + path, {
       ...init,
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         "Content-Type": "application/json",
       },
       signal: AbortSignal.timeout(30000),
@@ -193,12 +245,11 @@ export async function discoveryApi(
     );
   }
 }
-export async function verifyApifyDiscovery(token: string) {
-  if (!token) throw Error("Clé Apify requise.");
+export async function verifyApifyDiscovery(token = "") {
   const a = (await discoveryApi(`acts/${discoveryActor}`, token)).data;
   const b = (await discoveryApi(`acts/${discoveryActor}/builds/default`, token))
     .data;
-  let schema = b?.actorDefinition?.input;
+  let schema = b?.actorDefinition?.input || b?.inputSchema;
   if (typeof schema === "string") {
     try {
       schema = JSON.parse(schema);
@@ -214,24 +265,24 @@ export async function verifyApifyDiscovery(token: string) {
     onlyNew: "boolean",
     monitorId: "string",
     excludePlaceIds: "array",
-    excludePlaceUrls: "array",
     maxResults: "integer",
     language: "string",
-    includeReviews: "boolean",
-    includePhotos: "boolean",
-    includeLeadScore: "boolean",
+    countryCode: "string",
+    requireEmail: "boolean",
+    skipClosed: "boolean",
     debugMode: "boolean",
   };
   if (
     a?.id !== discoveryActorId ||
     !p ||
     Object.entries(required).some(([key, type]) => p[key]?.type !== type) ||
-    p.excludePlaceIds.items?.type !== "string" ||
-    p.excludePlaceUrls.items?.type !== "string"
+    p.excludePlaceIds.items?.type !== "string"
   )
     throw Error("Schéma officiel Apify modifié : lancement verrouillé.");
-  const price = a.currentPricingInfo || a.pricingInfos?.at(-1);
-  if (price?.pricingModel !== "PAY_PER_EVENT")
+  const price = a.currentPricingInfo || a.pricingInfos?.filter((p: any) => !p.startedAt || Date.parse(p.startedAt) <= Date.now()).sort((a: any,b: any) => Date.parse(a.startedAt) - Date.parse(b.startedAt)).at(-1);
+  if (price?.pricingModel !== "PAY_PER_EVENT" ||
+      (price.startedAt != null && (!Number.isFinite(Date.parse(price.startedAt)) || Date.parse(price.startedAt) > Date.now())) ||
+      (price.minimalMaxTotalChargeUsd != null && (typeof price.minimalMaxTotalChargeUsd !== 'number' || !Number.isFinite(price.minimalMaxTotalChargeUsd) || price.minimalMaxTotalChargeUsd < 0)))
     throw Error(
       "Tarification PAY_PER_EVENT non confirmée : lancement verrouillé.",
     );
@@ -240,9 +291,17 @@ export async function verifyApifyDiscovery(token: string) {
     !/^\d+\.\d+\.\d+$/.test(b.buildNumber)
   )
     throw Error("Build Apify non identifié.");
+  const events = price.pricingPerEvent?.actorChargeEvents;
+  if (!events || !events['apify-actor-start'] || !events['apify-default-dataset-item'] ||
+      Object.values(events).some((e: any) => {
+        const rates = e.eventPriceUsd != null ? [e.eventPriceUsd] : Object.values(e.eventTieredPricingUsd || {}).map((v: any) => v.tieredEventPriceUsd);
+        return !rates.length || rates.some((r: any) => typeof r !== 'number' || !Number.isFinite(r) || r < 0);
+      })) throw Error('Tarification détaillée Apify indisponible : lancement verrouillé.');
   return {
     build: b.buildNumber,
+    schemaFingerprint: createHash('sha256').update(JSON.stringify({ input: schema, output: b?.actorDefinition?.storages?.dataset || null })).digest('hex'),
     minimumBudget: Number(price.minimalMaxTotalChargeUsd || 0),
+    pricing: { model: price.pricingModel, currency: 'USD', events, effectiveAt: price.startedAt || null, minimumBudget: Number(price.minimalMaxTotalChargeUsd || 0), source: `https://api.apify.com/v2/acts/${discoveryActor}`, accountTierVerified: false },
   };
 }
 export async function startApifyDiscovery(
@@ -251,6 +310,7 @@ export async function startApifyDiscovery(
 ) {
   await validate(args);
   if (!args.requestId?.trim()) throw Error("requestId requis.");
+  if (!token) throw Error('Clé Apify requise.');
   const existing = await getSetting<any>("apifyPending", null);
   if (existing) {
     if (
@@ -267,24 +327,12 @@ export async function startApifyDiscovery(
   const c = await context(args);
   if (c.planId !== args.planId)
     throw Error("Plan Apify périmé : recalculez les exclusions.");
-  const verified = await verifyApifyDiscovery(token);
+  if (c.snapshot.unidentifiedCount || c.snapshot.unresolvedUrls.length)
+    throw Error('Identités historiques non convertibles en exclusions exactes : migration bloquée pour éviter de repayer.');
+  const verified = c.verified;
   if (args.budget < verified.minimumBudget)
     throw Error("Budget minimal Apify non atteint.");
-  const input = {
-    mode: "search",
-    query: c.query,
-    location: c.city,
-    maxResults: args.max,
-    language: "fr",
-    onlyNew: true,
-    monitorId: c.monitorId,
-    excludePlaceIds: c.snapshot.ids,
-    excludePlaceUrls: c.snapshot.urls,
-    includeReviews: false,
-    includePhotos: false,
-    includeLeadScore: false,
-    debugMode: false,
-  };
+  const input = c.input;
   const pending = {
     ...args,
     query: makeQuery({ ...args, city: c.city, paid: true }),
@@ -295,6 +343,9 @@ export async function startApifyDiscovery(
     monitorId: c.monitorId,
     exclusionSnapshot: c.snapshot,
     input,
+    pricing: verified.pricing,
+    build: verified.build,
+    schemaFingerprint: verified.schemaFingerprint,
     startedAt: new Date().toISOString(),
     runId: null,
   };

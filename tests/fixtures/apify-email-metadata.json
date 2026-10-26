@@ -1,0 +1,331 @@
+{
+  "data": {
+    "id": "4MTxdHfGoKTLDoTrD",
+    "pricingInfos": [
+      {
+        "minimalMaxTotalChargeUsd": null,
+        "pricingModel": "PAY_PER_EVENT",
+        "isPriceChangeNotificationSuppressed": false,
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventPriceUsd": 5e-05
+            },
+            "apify-default-dataset-item": {
+              "eventTitle": "result",
+              "eventDescription": "Single result in the default dataset.",
+              "isOneTimeEvent": false,
+              "eventPriceUsd": 0.01,
+              "isPrimaryEvent": true
+            },
+            "email-found": {
+              "eventTitle": "Email found",
+              "eventDescription": "Charged once per lead when a verified contact email is found and attached.",
+              "isOneTimeEvent": false,
+              "eventPriceUsd": 0.02
+            }
+          }
+        },
+        "startedAt": "2026-06-27T14:07:10.435Z",
+        "createdAt": "2026-06-27T14:07:11.114Z",
+        "apifyMarginPercentage": 0.2
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "startedAt": "2026-08-02T08:39:49.000Z",
+        "isPriceChangeNotificationSuppressed": false,
+        "reasonForChange": "Add progressive Apify plan discounts while preserving every existing Free-tier event price.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 5e-05
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 4.5e-05
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 4e-05
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 3.75e-05
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 3.5e-05
+                }
+              }
+            },
+            "apify-default-dataset-item": {
+              "eventTitle": "result",
+              "eventDescription": "Single result in the default dataset.",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.01
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.009
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0085
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.008
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0075
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.007
+                }
+              },
+              "isPrimaryEvent": true
+            },
+            "email-found": {
+              "eventTitle": "Email found",
+              "eventDescription": "Charged once per lead when a verified contact email is found and attached.",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.02
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.018
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.017
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.016
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.015
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.014
+                }
+              }
+            }
+          }
+        },
+        "createdAt": "2026-07-18T08:40:28.037Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutFutureChangeAt": "2026-07-18T08:40:48.152Z",
+        "notifiedAboutChangeAt": "2026-08-05T15:06:21.893Z"
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "startedAt": "2026-08-13T07:55:29.000Z",
+        "isPriceChangeNotificationSuppressed": false,
+        "reasonForChange": "Adding optional phone-found and email-verify events. Existing result and email-found prices are unchanged.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 5e-05
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 4.5e-05
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 4e-05
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 3.75e-05
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 3.5e-05
+                }
+              }
+            },
+            "apify-default-dataset-item": {
+              "eventTitle": "result",
+              "eventDescription": "Single result in the default dataset.",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.01
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.009
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0085
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.008
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0075
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.007
+                }
+              },
+              "isPrimaryEvent": true
+            },
+            "email-found": {
+              "eventTitle": "Email found",
+              "eventDescription": "Charged once per lead when a verified contact email is found and attached.",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.02
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.018
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.017
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.016
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.015
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.014
+                }
+              }
+            },
+            "phone-found": {
+              "eventTitle": "Phone found",
+              "eventDescription": "Charged once per lead when at least one phone number is found (Maps listing or website).",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.01
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.009
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0085
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.008
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0075
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.007
+                }
+              }
+            },
+            "email-verify": {
+              "eventTitle": "Email verify",
+              "eventDescription": "Charged once per decisive SMTP/MX verification result (deliverable, rejected, or no MX). Unknown or blocked SMTP is not charged.",
+              "isOneTimeEvent": false,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.01
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.009
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0085
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.008
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0075
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.007
+                }
+              }
+            }
+          }
+        },
+        "createdAt": "2026-08-13T07:55:29.807Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutChangeAt": "2026-08-19T08:06:16.146Z"
+      },
+      {
+        "pricingModel": "PAY_PER_EVENT",
+        "startedAt": "2026-10-19T00:00:00.000Z",
+        "reasonForChange": "One price per place with its contact details: $0.003 on the Free plan instead of $0.01 plus separate charges for emails and phones.",
+        "pricingPerEvent": {
+          "actorChargeEvents": {
+            "apify-actor-start": {
+              "eventTitle": "Actor Start",
+              "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+              "isOneTimeEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 5e-05
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 4.75e-05
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 4.5e-05
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 4.25e-05
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 4.25e-05
+                }
+              }
+            },
+            "apify-default-dataset-item": {
+              "eventTitle": "Place with contacts",
+              "eventDescription": "One Google Maps place saved to the dataset with the emails, phone numbers and social profiles found on its website. Emails and phones cost nothing extra.",
+              "isOneTimeEvent": false,
+              "isPrimaryEvent": true,
+              "eventTieredPricingUsd": {
+                "FREE": {
+                  "tieredEventPriceUsd": 0.003
+                },
+                "BRONZE": {
+                  "tieredEventPriceUsd": 0.0028
+                },
+                "SILVER": {
+                  "tieredEventPriceUsd": 0.0026
+                },
+                "GOLD": {
+                  "tieredEventPriceUsd": 0.0024
+                },
+                "PLATINUM": {
+                  "tieredEventPriceUsd": 0.0024
+                },
+                "DIAMOND": {
+                  "tieredEventPriceUsd": 0.0024
+                }
+              }
+            }
+          }
+        },
+        "createdAt": "2026-10-04T17:44:00.810Z",
+        "apifyMarginPercentage": 0.2,
+        "notifiedAboutFutureChangeAt": "2026-10-04T17:44:21.045Z",
+        "notifiedAboutChangeAt": "2026-10-19T00:00:32.320Z"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { emailPlan } from "./fixtures/apify-email-plan";
 test("Connexion : écran privé et retour à la prospection après authentification", async ({ page }) => {
   let authenticated = false;
   await page.route("**/api/auth/status", (route) => route.fulfill({ json: { required: true, authenticated } }));
@@ -192,7 +193,7 @@ test("Trois lots Apify confirmés de 25 inédits : historique préservé et anci
   await page.route("**/api/apify/discovery/plan", async route => {
     const input = route.request().postDataJSON(); plans.push(input);
     const state = await (await request.get("/api/state")).json();
-    await route.fulfill({ json: { ...input, planId: "a".repeat(64), actor: "benthepythondev/google-maps-business-scraper", excludedCount: state.prospects.length, unidentifiedCount: 0, warnings: [] } });
+    await route.fulfill({ json: emailPlan({ ...input, excludedCount: state.prospects.length, unidentifiedCount: 0, warnings: [] }) });
   });
   await page.route("**/api/apify/discovery/start", async route => {
     const input = route.request().postDataJSON(); starts.push(input);

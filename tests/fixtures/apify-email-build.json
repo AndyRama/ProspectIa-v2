@@ -1,0 +1,547 @@
+{
+  "data": {
+    "actorDefinition": {
+      "actorSpecification": 1,
+      "name": "google-maps-email-scraper",
+      "title": "Google Maps Email Extractor - Emails, Phones & Social Links",
+      "description": "Returns Google Maps places with the emails, phone numbers and social profiles their websites publish: one row per business with primary email, every email with its source, phones, address, rating and place id. Thousands of places per search, kept to the city boundary. No login, no API key.",
+      "version": "1.0",
+      "input": {
+        "title": "Google Maps Email Extractor input",
+        "type": "object",
+        "schemaVersion": 1,
+        "properties": {
+          "query": {
+            "title": "Search query",
+            "type": "string",
+            "editor": "textfield",
+            "prefill": "steuerberater",
+            "description": "What to search for on Google Maps, as you would type it there: a kind of business (\"dentist\", \"steuerberater\", \"law firm\"), a brand or a business name. Searched in the location below."
+          },
+          "location": {
+            "title": "Location",
+            "type": "string",
+            "editor": "textfield",
+            "prefill": "Berlin, Germany",
+            "description": "City, district, state or country to search in, for example \"Berlin, Germany\" or \"Austin, TX\". With a location the Actor reads past Google's list of about 200 places and keeps to the location's boundary."
+          },
+          "queries": {
+            "title": "More search queries",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Several search queries for one run. Each query is searched in each location, and a place found by two searches is saved once."
+          },
+          "locations": {
+            "title": "More locations",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Several locations for one run, for example a list of cities. Each query is searched in each of them."
+          },
+          "maxResults": {
+            "title": "Maximum places per search",
+            "type": "integer",
+            "editor": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 5000,
+            "description": "Places to save for each search (each query in each location), up to 5,000. Every place's website is read for contact details, about four places a second."
+          },
+          "requireEmail": {
+            "title": "Only places with an email",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": false,
+            "description": "Saves only places whose website publishes at least one email address. Places without one are not charged. The run reads at most 1,000 places per search, or ten per place asked for if that is more."
+          },
+          "skipClosed": {
+            "title": "Skip permanently closed places",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": true,
+            "description": "Leaves out places Google marks as permanently closed."
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string",
+            "editor": "select",
+            "default": "search",
+            "enum": [
+              "search",
+              "place_urls",
+              "websites"
+            ],
+            "enumTitles": [
+              "Search Google Maps",
+              "Place links only",
+              "Websites only"
+            ],
+            "description": "\"search\" runs the queries and also reads any place links. \"place_urls\" reads only the place links. \"websites\" skips Google Maps and reads the contact details of the websites you list."
+          },
+          "placeUrls": {
+            "title": "Place links or place ids",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Google Maps place links, place ids (ChIJ\u2026) or feature ids (0x\u2026:0x\u2026). Each place is read from its own page and its website is searched for contact details."
+          },
+          "websites": {
+            "title": "Websites",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Websites or domains to read contact details from without Google Maps, up to 5,000. Used when no query and no place link is given, or in \"websites\" mode."
+          },
+          "minRating": {
+            "title": "Minimum rating",
+            "type": "number",
+            "editor": "number",
+            "minimum": 1,
+            "maximum": 5,
+            "nullable": true,
+            "description": "Save only places with at least this star rating. Filtered places are not charged."
+          },
+          "minReviews": {
+            "title": "Minimum number of reviews",
+            "type": "integer",
+            "editor": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Save only places with at least this many reviews. Filtered places are not charged."
+          },
+          "language": {
+            "title": "Language",
+            "type": "string",
+            "editor": "textfield",
+            "default": "en",
+            "description": "Language of categories and opening hours, as a language code: en, de, fr, es, it."
+          },
+          "countryCode": {
+            "title": "Country of the visitor",
+            "type": "string",
+            "editor": "textfield",
+            "default": "us",
+            "description": "Two-letter country code Google is told the visitor is in. It decides the format of addresses and of the phone number Google shows."
+          },
+          "onlyNew": {
+            "title": "Only places not delivered before",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": false,
+            "description": "Skips every place an earlier run with the same monitor name saved. Use it to continue a large area over several runs or to get new businesses on a schedule. Skipped places are not charged."
+          },
+          "monitorId": {
+            "title": "Monitor name",
+            "type": "string",
+            "editor": "textfield",
+            "description": "Name of the memory used by \"only places not delivered before\"."
+          },
+          "excludePlaceIds": {
+            "title": "Exclude place ids",
+            "type": "array",
+            "editor": "stringList",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skip these places, given as place ids (ChIJ\u2026), numeric CIDs or feature ids (0x\u2026:0x\u2026). Excluded places are not saved or charged."
+          },
+          "debugMode": {
+            "title": "Debug log",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": false,
+            "description": "Logs every Google Maps request with its size and time. For support."
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://apify.com/schemas/v1/output.ide.json",
+        "actorOutputSchemaVersion": 1,
+        "title": "Output schema",
+        "properties": {
+          "results": {
+            "type": "string",
+            "title": "Enriched business leads",
+            "template": "{{links.apiDefaultDatasetUrl}}/items"
+          }
+        }
+      },
+      "dockerfile": "../Dockerfile",
+      "categories": [
+        "LEAD_GENERATION",
+        "MARKETING",
+        "BUSINESS"
+      ],
+      "isPublic": true,
+      "seoTitle": "Google Maps Email Extractor - Emails, Phones & Socials",
+      "seoDescription": "Extract the emails, phone numbers and social links of Google Maps businesses from their websites. Search by keyword and city, export leads to CSV or JSON.",
+      "storePricingModel": "PAY_PER_EVENT",
+      "minMemoryMbytes": 512,
+      "runPermissions": [
+        "datasets.write"
+      ],
+      "storages": {
+        "dataset": {
+          "actorSpecification": 1,
+          "fields": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "website": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "domain": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phones": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "website_phones": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "address": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rating": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "review_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "categories": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "primary_email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email_confidence": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "email_source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email_verified": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "emails": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "has_email": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "has_phone": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "socials": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "is_closed": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "closed_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "place_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lead_score": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "google_maps_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "search_query": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "search_location": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "feature_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kgmid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "price": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "latitude": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "longitude": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "neighborhood": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "street": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postal_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "country_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone_international": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opening_hours": {
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "image_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "photo_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "attributes": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "scraped_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "views": {
+            "overview": {
+              "title": "Business leads with contacts",
+              "transformation": {
+                "fields": [
+                  "name",
+                  "primary_email",
+                  "email_source",
+                  "phone",
+                  "website",
+                  "address",
+                  "category",
+                  "rating",
+                  "review_count",
+                  "lead_score",
+                  "google_maps_url"
+                ]
+              },
+              "display": {
+                "component": "table",
+                "properties": {
+                  "name": {
+                    "label": "Business"
+                  },
+                  "primary_email": {
+                    "label": "Primary email"
+                  },
+                  "email_source": {
+                    "label": "Email found on"
+                  },
+                  "phone": {
+                    "label": "Phone"
+                  },
+                  "website": {
+                    "label": "Website",
+                    "format": "link"
+                  },
+                  "address": {
+                    "label": "Address"
+                  },
+                  "category": {
+                    "label": "Category"
+                  },
+                  "rating": {
+                    "label": "Rating"
+                  },
+                  "review_count": {
+                    "label": "Reviews"
+                  },
+                  "lead_score": {
+                    "label": "Lead score"
+                  },
+                  "google_maps_url": {
+                    "label": "Google Maps",
+                    "format": "link"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "actorPermissionLevel": "LIMITED_PERMISSIONS",
+      "defaultRunOptions": {
+        "build": "latest",
+        "memoryMbytes": 2048,
+        "timeoutSecs": 3600
+      }
+    },
+    "buildNumber": "1.0.23"
+  }
+}
