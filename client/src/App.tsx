@@ -1027,6 +1027,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   </div>
                 </>
               )}
+              {page === "leads" && (
+                <ProspectMap
+                  items={rows}
+                  onOpen={setOpened}
+                  onSelect={selectMany}
+                />
+              )}
               {page === "selection" && (
                 <div className="page-hero">
                   <div>
