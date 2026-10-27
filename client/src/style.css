@@ -1119,6 +1119,36 @@ h1 em {
   color: #8b9992;
   max-width: 145px;
 }
+/* Fixed company track prevents long sourced values from pushing web presence away.
+   This contract belongs to the lead table only, not import previews. */
+.leads-table {
+  table-layout: fixed;
+  width: 1154px;
+  white-space: normal;
+}
+.leads-table td, .leads-table th {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.leads-table .company {
+  width: 100%;
+  max-width: 100%;
+  white-space: normal;
+}
+.leads-table .company > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.leads-table .company small {
+  flex-wrap: wrap;
+}
+.prospect-drawer h2 {
+  overflow-wrap: anywhere;
+}
+.leads-table .lead-essential-fields {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .table-scroll {
   overflow-x: auto;
 }

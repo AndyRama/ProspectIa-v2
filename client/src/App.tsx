@@ -48,6 +48,7 @@ import type {
   Status,
 } from "../../server/types";
 import { api, safeUrl } from "./api";
+import { safeGoogleBusinessUrl } from "./googleBusinessUrl";
 import { emailPromptEligible } from "../../server/services/generators/emailEligibility";
 import ProspectMap from "./Map";
 import HermesPrompt from "./HermesPrompt";
@@ -1117,7 +1118,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </div>
                 }
                 <div className="table-scroll">
-                  <table>
+                  <table className="leads-table">
+                    <colgroup><col style={{ width: 44 }} /><col style={{ width: 320 }} /><col style={{ width: 210 }} /><col style={{ width: 170 }} /><col style={{ width: 205 }} /><col style={{ width: 205 }} /></colgroup>
                     <thead>
                       <tr>
                         <th>
@@ -1185,6 +1187,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                             <div className="source-note lead-essential-fields" aria-label={`Coordonnées de ${p.name}`}>
                               <div>Téléphone : {p.phone || "Non renseigné"}</div>
                               <div>Site : {p.website ? <Link href={p.website}>{p.website}</Link> : "Non renseigné"}</div>
+                              <div>Google Business : {safeGoogleBusinessUrl(p) ? <a href={safeGoogleBusinessUrl(p)} target="_blank" rel="noopener noreferrer">Google Business</a> : "Non renseigné"}</div>
                               <div>Adresse : {p.address || "Non renseignée"} · Ville : {p.city || "Non renseignée"}</div>
                               <div>Email : {p.email || "Non renseigné"}</div>
                               <div>ID : {p.id || "Non renseigné"} · Identifiant Google : {p.fields.placeId?.value || p.fields.cid?.value || "Non renseigné"}</div>
@@ -1192,7 +1195,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                             </div>
                           </td>
                           <td>
-                            {p.webStatus !== "Non vérifié" && <span
+                            {p.webStatus !== "Non vérifié" && !(p.webStatus === "Pas de site renseigné" && !p.website.trim()) && <span
                               className={
                                 "web-badge " + (p.audit ? "verified" : "")
                               }
@@ -1599,6 +1602,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   coordonnées et liens
                 </p>
                 <div className="data-fields" aria-label="Coordonnées et provenance">
+                  <div><span>Google Business</span><strong>{safeGoogleBusinessUrl(opened) ? <a href={safeGoogleBusinessUrl(opened)} target="_blank" rel="noopener noreferrer">Google Business</a> : "Non renseigné"}</strong></div>
                   {([['name', 'Nom'], ['category', 'Activité'], ['city', 'Ville'], ['address', 'Adresse'], ['phone', 'Téléphone'], ['website', 'Site'], ['email', 'Email'], ['id', 'Identifiant interne']] as const).map(([key, label]) => {
                     const value = opened[key], source = opened.fields[key];
                     return <div key={key}><span>{label}</span><strong>{value || "Non renseigné"}</strong><small>Source : {value ? source?.source || "non communiquée" : "non disponible"} · Date : {value && source?.collectedAt ? date(source.collectedAt) : "non communiquée"}</small></div>;
