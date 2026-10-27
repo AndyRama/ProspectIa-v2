@@ -1,5 +1,68 @@
 import { test, expect } from "@playwright/test";
 import { businessPlan } from "./fixtures/apify-business-plan";
+
+test("Carte Tous les leads : répertoire actif multiville, fiche et sélection persistée", async ({ page, request }) => {
+  await request.delete("/api/data", { data: { confirm: "SUPPRIMER" } });
+  const imported = await (await request.post("/api/import", { data: { text: "name,city,category,address\nAtelier Bordeaux,Bordeaux,Artisan,1 rue Bordeaux\nAtelier Lyon,Lyon,Artisan,2 rue Lyon\nSans position,Lille,Artisan,3 rue Lille\nAncien lead,Paris,Artisan,4 rue Paris" } })).json();
+  const ids = Object.fromEntries(imported.prospects.map((p: any) => [p.name, p.id]));
+  await request.patch(`/api/prospects/${ids["Ancien lead"]}`, { data: { archived: true } });
+  await request.patch(`/api/prospects/${ids["Atelier Lyon"]}`, { data: { selected: true, status: "En discussion" } });
+  const errors: string[] = [], forbidden: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("request", req => {
+    if (/\/api\/(search|apify|.*contact-check|.*site-check)/.test(new URL(req.url()).pathname)) forbidden.push(req.url());
+  });
+  // Real persisted records and PATCH API; only geographic/search provider data is a fixture.
+  await page.route("**/api/state", async route => {
+    const state = await (await request.get("/api/state")).json();
+    const coords: Record<string, [number, number]> = { "Atelier Bordeaux": [44.84, -0.58], "Atelier Lyon": [45.76, 4.84], "Ancien lead": [48.86, 2.35] };
+    state.prospects = state.prospects.map((p: any) => ({ ...p, lat: coords[p.name]?.[0] ?? null, lng: coords[p.name]?.[1] ?? null, engine: p.name === "Atelier Lyon" ? "voice" : "website", email: p.name === "Atelier Bordeaux" ? "bonjour@example.test" : "" }));
+    state.searches = [{ id: "map-search", city: "Bordeaux", activity: "artisan", keyword: "", provider: "Import", engine: "website", count: 1, ids: [ids["Atelier Bordeaux"]], cost: 0, createdAt: "2026-10-27T00:00:00Z" }];
+    await route.fulfill({ json: state });
+  });
+  await page.route("**/api/tiles/**", route => route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64") }));
+  await page.goto("/");
+  await expect(page.locator(".map-card")).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("button", { name: "Avec email", exact: true }).click();
+  await page.getByRole("button", { name: /Tous les leads/ }).click();
+  await expect(page.locator(".map-card")).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(3);
+  await expect(page.locator(".map-card")).toContainText("2 entreprises localisées · 1 sans position renseignée");
+  await expect(page.locator(".prospect-marker")).toHaveCount(2);
+  await expect(page.locator("tbody")).not.toContainText("Ancien lead");
+  const popup = page.locator(".leaflet-popup");
+  await page.locator(".prospect-marker").first().click();
+  const name = await popup.locator("strong").innerText();
+  await popup.getByRole("button", { name: "Voir la fiche", exact: true }).click();
+  const detail = page.getByRole("complementary", { name: "Fiche prospect" });
+  await expect(detail).toContainText(name);
+  await detail.getByRole("button", { name: "Fermer la fiche", exact: true }).click();
+  await popup.getByRole("button", { name: "Sélectionner cette entreprise" }).click();
+  await expect.poll(async () => (await (await request.get("/api/state")).json()).prospects.find((p: any) => p.id === ids[name]).selected).toBe(true);
+  await page.getByRole("button", { name: "Sélectionner la zone visible (2)" }).click();
+  await expect.poll(async () => (await (await request.get("/api/state")).json()).prospects.filter((p: any) => p.selected).map((p: any) => p.id).sort()).toEqual([ids["Atelier Bordeaux"], ids["Atelier Lyon"]].sort());
+  await page.reload();
+  await page.getByRole("button", { name: /Tous les leads/ }).click();
+  await expect(page.locator(".prospect-marker span")).toHaveCount(2);
+  for (const marker of await page.locator(".prospect-marker span").all()) await expect(marker).toHaveCSS("background-color", "rgb(20, 121, 107)");
+  const saved = (await (await request.get("/api/state")).json()).prospects;
+  expect(saved.find((p: any) => p.id === ids["Atelier Lyon"]).status).toBe("En discussion");
+  expect(saved.find((p: any) => p.id === ids["Sans position"]).selected).toBe(false);
+  expect(saved.find((p: any) => p.id === ids["Ancien lead"]).archived).toBe(true);
+  await page.getByRole("button", { name: /Archives/ }).click();
+  await expect(page.locator(".map-card")).toHaveCount(0);
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("button", { name: /Ma sélection/ }).click();
+  await expect(page.locator(".map-card")).toHaveCount(0);
+  await page.getByRole("button", { name: "Trouver des prospects" }).click();
+  await expect(page.locator(".map-card")).toContainText("1 entreprises localisées · 0 sans position renseignée");
+  await page.getByRole("button", { name: "Email à trouver", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(0);
+  await expect(page.locator(".map-card")).toContainText("0 entreprises localisées · 0 sans position renseignée");
+  expect(errors).toEqual([]);
+  expect(forbidden).toEqual([]);
+});
 test("Connexion : écran privé et retour à la prospection après authentification", async ({ page }) => {
   let authenticated = false;
   await page.route("**/api/auth/status", (route) => route.fulfill({ json: { required: true, authenticated } }));
