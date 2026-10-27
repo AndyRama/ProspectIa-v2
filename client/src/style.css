@@ -1119,11 +1119,19 @@ h1 em {
   color: #8b9992;
   max-width: 145px;
 }
-/* Fixed company track prevents long sourced values from pushing web presence away.
+/* Fill the available width with proportional columns; contain mobile scrolling.
    This contract belongs to the lead table only, not import previews. */
 .leads-table {
   table-layout: fixed;
-  width: 1154px;
+  width: 100%;
+  min-width: 980px;
+  white-space: normal;
+}
+.leads-table td:first-child, .leads-table th:first-child {
+  padding-inline: 12px;
+}
+.leads-table td:last-child > div {
+  flex-wrap: wrap;
   white-space: normal;
 }
 .leads-table td, .leads-table th {

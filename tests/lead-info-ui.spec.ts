@@ -24,15 +24,20 @@ test('compact lead information keeps controls, scoped geometry, statuses and Goo
   await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toHaveAttribute('rel', /noopener/);
   mkdirSync(capture, { recursive: true });
-  for (const width of [1440, 1920, 650, 390]) {
+  for (const width of [1440, 1920, 2560, 650, 390]) {
     await page.setViewportSize({ width, height: 1100 });
     const geometry = await row.evaluate(tr => {
       const cells = tr.querySelectorAll('td'); const cell = cells[1]; const company = cell.querySelector('.company')!;
       const scroll = tr.closest('.table-scroll')!;
-      return { cell: cell.getBoundingClientRect().width, header: tr.closest('table')!.querySelectorAll('th')[1].getBoundingClientRect().width, company: company.getBoundingClientRect().width, content: cell.scrollWidth, doc: document.documentElement.scrollWidth, viewport: innerWidth, scroll: scroll.scrollWidth, container: scroll.clientWidth };
+      return { columns: Array.from(cells, cell => cell.getBoundingClientRect().width), actionsContained: Array.from(cells[5].querySelectorAll('button')).every(button => button.getBoundingClientRect().right <= cells[5].getBoundingClientRect().right + 1), table: tr.closest('table')!.getBoundingClientRect().width, cell: cell.getBoundingClientRect().width, header: tr.closest('table')!.querySelectorAll('th')[1].getBoundingClientRect().width, company: company.getBoundingClientRect().width, content: cell.scrollWidth, doc: document.documentElement.scrollWidth, viewport: innerWidth, scroll: scroll.scrollWidth, container: scroll.clientWidth };
     });
-    expect(geometry.cell).toBeLessThanOrEqual(360);
-    expect(geometry.cell).toBeGreaterThanOrEqual(280);
+    if (width >= 1440) {
+      expect(Math.abs(geometry.table - geometry.container)).toBeLessThanOrEqual(1);
+      expect(geometry.scroll).toBeLessThanOrEqual(geometry.container + 1);
+    }
+    expect(geometry.cell / geometry.table).toBeCloseTo(0.36, 2);
+    [0.04, 0.36, 0.18, 0.12, 0.14, 0.16].forEach((share, i) => expect(geometry.columns[i] / geometry.table).toBeCloseTo(share, 2));
+    expect(geometry.actionsContained).toBe(true);
     expect(geometry.cell).toBe(geometry.header);
     expect(geometry.content).toBeLessThanOrEqual(geometry.cell + 1);
     expect(geometry.doc).toBe(geometry.viewport);
@@ -56,6 +61,6 @@ test('compact lead information keeps controls, scoped geometry, statuses and Goo
     const first = page.locator('.leads-table tbody tr').first();
     await expect(first.locator('.web-badge')).toHaveCount(0);
     await expect(first.getByRole('link', { name: 'Google Business', exact: true })).toBeVisible();
-    expect(await first.locator('td').nth(1).evaluate(el => el.getBoundingClientRect().width)).toBe(320);
+    expect(await first.locator('td').nth(1).evaluate(el => el.getBoundingClientRect().width / el.closest('table')!.getBoundingClientRect().width)).toBeCloseTo(0.36, 2);
   }
 });

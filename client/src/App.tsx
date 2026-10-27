@@ -1119,7 +1119,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 }
                 <div className="table-scroll">
                   <table className="leads-table">
-                    <colgroup><col style={{ width: 44 }} /><col style={{ width: 320 }} /><col style={{ width: 210 }} /><col style={{ width: 170 }} /><col style={{ width: 205 }} /><col style={{ width: 205 }} /></colgroup>
+                    <colgroup><col style={{ width: "4%" }} /><col style={{ width: "36%" }} /><col style={{ width: "18%" }} /><col style={{ width: "12%" }} /><col style={{ width: "14%" }} /><col style={{ width: "16%" }} /></colgroup>
                     <thead>
                       <tr>
                         <th>
