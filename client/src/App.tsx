@@ -52,6 +52,8 @@ import { safeGoogleBusinessUrl } from "./googleBusinessUrl";
 import { emailPromptEligible } from "../../server/services/generators/emailEligibility";
 import ProspectMap from "./Map";
 import HermesPrompt from "./HermesPrompt";
+import GemmaQualificationDialog, { GemmaBadge, hasGemmaRecovery } from "./GemmaQualificationDialog";
+import type { QualificationRun } from "../../server/qualificationTypes";
 import { makeQuery, queryForSearch, queryKey } from "../../server/searchQuery";
 type Page =
   | "search"
@@ -67,6 +69,7 @@ type Settings = {
   business: Business;
   limits: { max: number; budget: number };
   apifyConfigured: boolean;
+  openrouterConfigured?: boolean;
   storage: string;
   pending: any;
   onboarded: boolean;
@@ -206,6 +209,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     [webFilter, setWebFilter] = useState("all"),
     [socialFilter, setSocialFilter] = useState(false);
   const [runRecovery, setRunRecovery] = useState("");
+  const [gemmaOpen, setGemmaOpen] = useState(hasGemmaRecovery);
+  const [gemmaFilter, setGemmaFilter] = useState("all");
   const [searchDiagnostic, setSearchDiagnostic] = useState<{ text: string; error?: boolean } | null>(null);
 
   const busyRef = useRef(false);
@@ -260,6 +265,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     );
     return s;
   };
+  const receiveQualification = (run: QualificationRun) => {
+    const results = new Map(run.results.filter(r => r.status === "updated" && r.qualification).map(r => [r.id, r.qualification!]));
+    setState(s => s ? { ...s, prospects: s.prospects.map(p => results.has(p.id) ? { ...p, aiQualification: results.get(p.id)! } : p) } : s);
+    setOpened(p => p && results.has(p.id) ? { ...p, aiQualification: results.get(p.id)! } : p);
+  };
   useEffect(() => {
     refresh()
       .then((s) => {
@@ -293,7 +303,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     }
   }
   const resetFilters = () => {
-    setFilterEmail("all"); setFit("all"); setSort("source");
+    setFilterEmail("all"); setFit("all"); setSort("source"); setGemmaFilter("all");
     setMinRating(""); setMinReviews(""); setWebFilter("all"); setSocialFilter(false);
   };
   const go = (p: Page) => {
@@ -480,6 +490,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   );
   const total = rows.length;
   const directory = page === "leads" || page === "archives";
+  if (page === "leads" && gemmaFilter !== "all") rows = rows.filter(p => gemmaFilter === "pending" ? !p.aiQualification : p.aiQualification?.decision === gemmaFilter);
   rows = directory ? rows : rows.filter(
     (p) =>
       (fit !== "opportunities" || opportunity(p, engine)) &&
@@ -1072,6 +1083,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               <section className="card table-card">
                 {page !== "archives" && <div className="site-check-batch" aria-live="polite">
                   <button className="button ghost small" disabled={!!busy || !siteCandidates.length} onClick={checkDisplayedSites}>Vérifier les sites affichés</button>
+                  {page === "leads" && <button className="button ghost small" disabled={!!busy} onClick={() => setGemmaOpen(true)}><Sparkles size={14} />Requalifier avec Gemma</button>}
+                  {page === "leads" && <label>Qualification Gemma<select aria-label="Qualification Gemma" value={gemmaFilter} onChange={e => setGemmaFilter(e.target.value)}><option value="all">Tous les leads</option><option value="pending">Non qualifiés</option><option value="qualified">Qualifiés</option><option value="review">À revoir</option><option value="rejected">Non retenus</option></select></label>}
                   <p>Contrôle préliminaire · page d’accueil uniquement · 25 sites maximum, un à un · sans Apify.</p>
                   {siteBatch && <p>{siteBatch.success} réussite(s) · {siteBatch.failed} échec(s) · {siteBatch.success + siteBatch.failed}/{siteBatch.total}{busy === "site-check-batch" ? " · En cours…" : " · Terminé"}{siteBatch.lastError && <span className="site-check-error"> · {siteBatch.lastError}</span>}</p>}
                 </div>}
@@ -1192,6 +1205,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               <div>Email : {p.email || "Non renseigné"}</div>
                               <div>ID : {p.id || "Non renseigné"} · Identifiant Google : {p.fields.placeId?.value || p.fields.cid?.value || "Non renseigné"}</div>
                               <div>Source : {[...new Set(Object.values(p.fields).map(field => field.source).filter(Boolean))].join(" · ") || "Non communiquée"}</div>
+                              <GemmaBadge qualification={p.aiQualification} />
                             </div>
                           </td>
                           <td>
@@ -1539,6 +1553,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           </footer>
         </main>
       </div>
+      {gemmaOpen && <GemmaQualificationDialog prospects={page === "leads" ? rows : canonical.filter(p => !p.archived)} business={state.settings.business} configured={!!state.settings.openrouterConfigured} onClose={() => setGemmaOpen(false)} onRefresh={refresh} onReceipt={receiveQualification} />}
       {opened && (
         <>
           <div className="drawer-shade" onClick={() => setOpened(null)} />
@@ -1568,6 +1583,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </button>
               </div>
               <h2>{opened.name}</h2>
+              <GemmaBadge qualification={opened.aiQualification} />
               <div className="button-group">{archiveButton(opened)}{opened.archived && <span className="demo-tag">Archivé</span>}</div>
               {opened.archived && <p className="source-note">Dossier conservé. Désarchivez ce lead pour le sélectionner ou préparer une nouvelle proposition.</p>}
               <p className="address">
@@ -2265,6 +2281,7 @@ function SettingsPage({
   const [business, setBusiness] = useState(settings.business),
     [limits, setLimits] = useState(settings.limits),
     [apifyKey, setApifyKey] = useState(""),
+    [openrouterKey, setOpenrouterKey] = useState(""),
     [reading, setReading] = useState(false),
     [deleteText, setDeleteText] = useState("");
   const field = (
@@ -2306,8 +2323,10 @@ function SettingsPage({
             business,
             limits,
             ...(apifyKey ? { apifyKey } : {}),
+            ...(openrouterKey.trim() ? { openrouterKey: openrouterKey.trim() } : {}),
           });
           setApifyKey("");
+          setOpenrouterKey("");
         }}
       >
         <div className="settings-layout">
@@ -2409,6 +2428,12 @@ function SettingsPage({
                 placeholder="Laisser vide pour conserver la clé actuelle"
               />
             </label>
+            <label>
+              CLÉ API OPENROUTER <span className="configured">{settings.openrouterConfigured ? "Configurée" : "Non configurée"}</span>
+              <input type="password" autoComplete="new-password" value={openrouterKey} onChange={e => setOpenrouterKey(e.target.value)} placeholder="Laisser vide pour conserver la clé actuelle" />
+            </label>
+            <p className="source-note">Présence uniquement · connexion non testée.</p>
+            <p className="source-note">Gemma utilise google/gemma-4-26b-a4b-it:free, après aperçu et confirmation explicite uniquement. Aucun appel au modèle à l’enregistrement de la clé.</p>
             <div className="form-grid">
               <label>
                 ENTREPRISES PAR LOT · MAXIMUM 25

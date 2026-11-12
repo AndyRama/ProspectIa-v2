@@ -52,6 +52,9 @@ export interface Prospect {
   archived?: boolean;
   /** Ancienne fiche conservée, redirigée vers la fiche unique. */
   duplicateOf?: string;
+  /** Seconde qualification IA, distincte du suivi commercial et de l’audit technique. */
+  aiQualification?: import("./qualificationTypes").AIQualification;
+  aiQualificationHistory?: import("./qualificationTypes").AIQualification[];
 }
 export interface Audit {
   /** URL effectivement lue, après les redirections publiques. */

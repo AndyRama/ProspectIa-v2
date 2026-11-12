@@ -1,11 +1,12 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Client, InStatement } from "@libsql/client";
+import type { Client, InStatement, Transaction } from "@libsql/client";
 import type { Business, Prospect, Search, Draft } from "./types";
 import { consolidateProspects } from "./services/identity";
 
 const schema = [
+  "CREATE TABLE IF NOT EXISTS qualification_runs(id TEXT PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS prospects(id TEXT PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS searches(id TEXT PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL, data TEXT NOT NULL)",
@@ -19,6 +20,16 @@ const schema = [
   "CREATE TABLE IF NOT EXISTS apify_place_claims(place_id TEXT PRIMARY KEY, run_id TEXT, created_at TEXT NOT NULL)",
 ];
 let connection: Promise<Client> | undefined;
+// Retry lock acquisition only, never a transaction callback or provider I/O.
+async function acquireWhenFree<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await work(); }
+    catch (error) {
+      if (!/^SQLITE_BUSY/.test(String((error as { code?: string }).code)) || attempt >= 20) throw error;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  }
+}
 async function connect() {
   if (!connection) connection = (async () => {
     const remote = process.env.TURSO_DATABASE_URL;
@@ -34,8 +45,19 @@ async function connect() {
       mkdirSync(dir, { recursive: true });
       const { createClient } = await import("@libsql/client");
       client = createClient({ url: pathToFileURL(path.resolve(dir, "prospectai.sqlite")).href });
+      // Allow local session/recovery reads while another process claims a run.
+      await acquireWhenFree(() => client.execute("PRAGMA journal_mode=WAL"));
     }
-    await client.batch(schema, "write");
+    await acquireWhenFree(async () => {
+      try { return await client.batch(schema, "write"); }
+      catch (error) {
+        if (!remote && /^SQLITE_BUSY/.test(String((error as { code?: string }).code))) {
+          client.close();
+          client = (await import("@libsql/client")).createClient({ url: pathToFileURL(path.resolve(process.env.DATA_DIR || ".data", "prospectai.sqlite")).href });
+        }
+        throw error;
+      }
+    });
     const existing = (await client.execute("SELECT data FROM prospects ORDER BY rowid ASC")).rows.map((r) => JSON.parse(String(r.data)) as Prospect);
     const changes = consolidateProspects(existing);
     if (changes.length) await client.batch(changes.map(prospectStatement), "write");
@@ -50,6 +72,22 @@ async function connect() {
   return connection;
 }
 export const db = {
+  transaction: async <T>(work: (tx: Transaction) => Promise<T>): Promise<T> => {
+    const shared = await connect();
+    const local = !process.env.TURSO_DATABASE_URL;
+    const { client, tx } = await acquireWhenFree(async () => {
+      // Native libSQL retains a busy BEGIN statement on a pooled connection.
+      // A failed acquisition must dispose that handle, not retry it in-place.
+      const client = local ? (await import("@libsql/client")).createClient({
+        url: pathToFileURL(path.resolve(process.env.DATA_DIR || ".data", "prospectai.sqlite")).href,
+      }) : shared;
+      try { return { client, tx: await client.transaction("write") }; }
+      catch (error) { if (local) client.close(); throw error; }
+    });
+    try { const result = await work(tx); await tx.commit(); return result; }
+    catch (error) { await tx.rollback().catch(() => {}); throw error; }
+    finally { tx.close(); if (local) client.close(); }
+  },
   execute: async (statement: InStatement) => (await connect()).execute(statement),
   batch: async (statements: InStatement[]) => (await connect()).batch(statements, "write"),
   close: async () => { if (connection) (await connection).close(); connection = undefined; },

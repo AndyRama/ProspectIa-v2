@@ -8,6 +8,7 @@ import { z } from "zod";
 import { parse } from "csv-parse/sync";
 import { db, defaultBusiness, getSetting, setSetting, list, prospect, saveProspect, saveDraft, saveDrafts, seedDemo, catalogSnapshot } from "./db";
 import { secret, saveSecret } from "./secrets";
+import { previewQualification, readQualification, runQualification } from "./services/gemmaQualification";
 import type { Business, Draft, Engine, Prospect, Search, HermesHandoff } from "./types";
 import { analyze, inspectSite, inspectSiteContacts } from "./services/siteAnalyzer";
 import { generateDrafts } from "./services/generators";
@@ -51,6 +52,9 @@ app.use("/api", (req, res, next) => {
     next();
 });
 mountAuth(app);
+app.post('/api/qualification/preview', async (req, res) => res.json(await previewQualification(req.body)));
+app.get('/api/qualification/:id', async (req, res) => res.json(await readQualification(req.params.id)));
+app.post('/api/qualification/:id/run', async (req, res) => res.json(await runQualification(req.params.id, req.body)));
 const engineSchema = z.enum(["website", "voice", "menu"]);
 const businessSchema = z.object({
     name: z.string().min(1).max(120),
@@ -85,11 +89,12 @@ const searchSchema = z.object({
     intent: z.enum(["browse", "discover"]).default("browse"),
 });
 const settings = async () => {
-  const [business, limits, apifyKey, pending, onboarded] = await Promise.all([
+  const [business, limits, apifyKey, pending, onboarded, openrouterKey] = await Promise.all([
     getSetting("business", defaultBusiness), getSetting("limits", { max: 25, budget: 1 }),
     secret("apifyKey"), getSetting("apifyPending", null), getSetting("onboarded", false),
+    secret("openrouterKey"),
   ]);
-  return { business, limits: { ...limits, max: Math.min(25, limits.max) }, apifyConfigured: !!apifyKey, pending, onboarded,
+  return { business, limits: { ...limits, max: Math.min(25, limits.max) }, apifyConfigured: !!apifyKey, openrouterConfigured: !!openrouterKey, pending, onboarded,
     storage: process.env.TURSO_DATABASE_URL ? "Turso · SQLite distant" : "SQLite local" };
 };
 app.get("/api/tiles/:z/:x/:tile", async (req, res) => {
@@ -465,6 +470,8 @@ app.put("/api/settings", async (req, res) => {
             budget: z.number().min(0.05).max(10),
         }),
         apifyKey: z.string().max(500).optional(),
+        openrouterKey: z.string().max(500).optional(),
+        clearOpenrouterKey: z.boolean().optional(),
     })
         .parse(req.body);
     await setSetting("business", input.business);
@@ -472,6 +479,8 @@ app.put("/api/settings", async (req, res) => {
     await setSetting("onboarded", true);
     if (input.apifyKey !== undefined)
         (await saveSecret("apifyKey", input.apifyKey));
+    if (input.clearOpenrouterKey) await saveSecret("openrouterKey", "");
+    else if (input.openrouterKey?.trim()) await saveSecret("openrouterKey", input.openrouterKey.trim());
     res.json((await settings()));
 });
 app.post("/api/business/read-site", async (req, res) => {
@@ -583,6 +592,7 @@ app.post("/api/import", async (req, res) => {
 });
 app.get("/api/export", async (_req, res) => res.attachment("prospectai-export.json").json({
     exportedAt: new Date().toISOString(),
+    qualifications: (await db.execute('SELECT data FROM qualification_runs ORDER BY rowid')).rows.map(r => JSON.parse(String(r.data)).run),
     business: (await getSetting("business", defaultBusiness)),
     prospects: await list("prospects"),
     archivedDuplicateProspects: (await db.execute("SELECT data FROM prospects")).rows.map((r) => JSON.parse(String(r.data))).filter((p) => p.duplicateOf),
@@ -600,7 +610,7 @@ app.delete("/api/data", async (req, res) => {
         throw Error("Confirmation requise : SUPPRIMER.");
     if ((await getSetting("apifyPending", null)))
         throw Error("Une collecte Apify est en cours. Récupérez son résultat avant de supprimer.");
-    await db.batch(["prospects", "searches", "drafts", "deliverables", "settings", "mail_attempts", "suppressions", "handoffs", "apify_place_claims"].map((table) => ({ sql: "DELETE FROM " + table, args: [] })));
+    await db.batch(["prospects", "searches", "drafts", "deliverables", "settings", "mail_attempts", "suppressions", "handoffs", "apify_place_claims", "qualification_runs"].map((table) => ({ sql: "DELETE FROM " + table, args: [] })));
     res.json({ ok: true });
 });
 app.use("/api", (_req, res) => res.status(404).json({ error: "Fonction introuvable. ProspectAI ne publie plus de maquettes et n’envoie aucun email." }));

@@ -17,7 +17,8 @@ function key() {
     writeFileSync(file, randomBytes(32), { mode: 0o600, flag: "wx" });
   return readFileSync(file);
 }
-export async function saveSecret(name: "apifyKey", value: string) {
+type SecretName = "apifyKey" | "openrouterKey";
+export async function saveSecret(name: SecretName, value: string) {
   if (!value) {
     await setSetting(name, null);
     return;
@@ -34,8 +35,8 @@ export async function saveSecret(name: "apifyKey", value: string) {
     data: encrypted.toString("hex"),
   });
 }
-export async function secret(name: "apifyKey") {
-  const env = process.env.APIFY_TOKEN;
+export async function secret(name: SecretName) {
+  const env = process.env[name === "apifyKey" ? "APIFY_TOKEN" : "OPENROUTER_API_KEY"];
   if (env) return env;
   const item = await getSetting<any>(name, null);
   if (!item) return "";
