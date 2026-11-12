@@ -68,6 +68,16 @@ Ces consignes constituent un **document de travail**, pas un contrôle technique
 
 Le bouton **Importer Excel** permet de charger une feuille d’entreprises, vérifier son aperçu puis confirmer l’ajout au dashboard et à **Tous les leads**. Un modèle vide est téléchargeable dans la fenêtre d’import. Le nom est obligatoire ; ville, site web, email, téléphone, adresse, catégorie et Place ID sont facultatifs. Maximum : **200 entreprises**, fichier **5 Mio**. Les données existantes et les archives sont conservées ; aucun appel Apify ni paiement. L’import CSV reste disponible. Voir [le guide Excel](docs/IMPORT-EXCEL.md).
 
+## Seconde qualification des leads avec Gemma
+
+Dans **Tous les leads**, le bouton **Requalifier avec Gemma** ajoute une analyse commerciale distincte des filtres locaux, de l’audit technique et du statut de suivi. Le modèle fixé est `google/gemma-4-26b-a4b-it:free`, via OpenRouter, sans repli vers un modèle payant.
+
+Renseigner votre business puis une clé OpenRouter dans les paramètres (stockage chiffré), ou utiliser `OPENROUTER_API_KEY` côté serveur. La présence d’une clé n’est pas une connexion testée. Examiner le lot et les critères puis confirmer avant tout appel IA ; aucun lancement à l’ouverture de la page, à l’import ou pendant la saisie.
+
+Le résultat conserve un score, une décision, une justification, les données manquantes et la date. Il ne supprime pas les leads et ne change ni les archives, ni la sélection, ni le suivi commercial. Les résultats précédents sont conservés lors d’une seconde analyse. Les filtres de qualification restent un choix explicite de l’utilisateur.
+
+Voir [le fonctionnement, les limites et les protections Gemma](docs/QUALIFICATION-GEMMA.md). La qualification n’active ni Apify, ni un envoi email, ni une API de rédaction des messages.
+
 ## Tous les leads et archivage
 
 Le bouton **Tous les leads** ouvre les entreprises **actives** enregistrées, indépendamment de la recherche ou du moteur affiché auparavant. Le nouvel onglet **Archives** contient uniquement les entreprises archivées. Archiver retire une fiche de la liste active sans la supprimer ; désarchiver la remet dans **Tous les leads**, sans la sélectionner automatiquement.
