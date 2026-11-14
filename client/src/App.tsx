@@ -52,6 +52,7 @@ import { safeGoogleBusinessUrl } from "./googleBusinessUrl";
 import { externalSiteTools } from "./externalSiteTools";
 import { emailPromptEligible } from "../../server/services/generators/emailEligibility";
 import ProspectMap from "./Map";
+import CollapsibleValue from "./CollapsibleValue";
 import HermesPrompt from "./HermesPrompt";
 import GemmaQualificationDialog, { GemmaBadge, hasGemmaRecovery } from "./GemmaQualificationDialog";
 import type { QualificationRun } from "../../server/qualificationTypes";
@@ -1577,7 +1578,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       {opened && (
         <>
           <div className="drawer-shade" onClick={() => setOpened(null)} />
-          <aside className="prospect-drawer" aria-label="Fiche prospect">
+          <aside key={opened.id} className="prospect-drawer" aria-label="Fiche prospect">
             <div className="drawer-top">
               <span className="eyebrow">FICHE PROSPECT</span>
               <button
@@ -1641,7 +1642,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   <div><span>Google Business</span><strong>{safeGoogleBusinessUrl(opened) ? <a href={safeGoogleBusinessUrl(opened)} target="_blank" rel="noopener noreferrer">Google Business</a> : "Non renseigné"}</strong></div>
                   {([['name', 'Nom'], ['category', 'Activité'], ['city', 'Ville'], ['address', 'Adresse'], ['phone', 'Téléphone'], ['website', 'Site'], ['email', 'Email'], ['id', 'Identifiant interne']] as const).map(([key, label]) => {
                     const value = opened[key], source = opened.fields[key];
-                    return <div key={key}><span>{label}</span><strong>{value || "Non renseigné"}</strong><small>Source : {value ? source?.source || "non communiquée" : "non disponible"} · Date : {value && source?.collectedAt ? date(source.collectedAt) : "non communiquée"}</small></div>;
+                    return <div key={key}><span>{label}</span><strong><CollapsibleValue value={value || "Non renseigné"} /></strong><small><CollapsibleValue value={`Source : ${value ? source?.source || "non communiquée" : "non disponible"} · Date : ${value && source?.collectedAt ? date(source.collectedAt) : "non communiquée"}`} /></small></div>;
                   })}
                 </div>
                 <div className="contact-grid">
@@ -1697,16 +1698,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               hours: "Horaires",
                             } as Record<string, string>
                           )[key] || key}{" "}
-                          · {field.source}
+                          · <CollapsibleValue value={field.source} />
                         </span>
                         <strong>
-                          {safeUrl(field.value) ? (
-                            <Link href={field.value}>{field.value}</Link>
-                          ) : (
-                            field.value
-                          )}
+                          <CollapsibleValue value={field.value} render={text => safeUrl(field.value) ? <Link href={field.value}>{text}</Link> : text} />
                         </strong>
-                        <small>{field.qualification}</small>
+                        <small>{field.qualification && <CollapsibleValue value={field.qualification} />}</small>
                         <small>
                           Collecté le {date(field.collectedAt)}{" "}
                           {field.url && (
@@ -1722,7 +1719,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                       <p>
                         {opened.rating}/5 · {opened.reviews ?? "—"} avis
                       </p>
-                      {opened.hours && <p>{opened.hours}</p>}
+                      {opened.hours && <p><CollapsibleValue value={opened.hours} /></p>}
                     </div>
                   )}
                 </>
