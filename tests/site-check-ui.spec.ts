@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 // Real app rendered against a deterministic local API boundary; no public website or paid service.
 async function fixture(page: Page, extra: any[] = []) {
   page.on("pageerror", error => { throw error; });
-  const base = { lat: null, lng: null, category: "Artisan", city: "Lyon", address: "Lyon", engine: "website", status: "À contacter", selected: false, fields: {}, socials: {}, photos: [], rating: null, reviews: null, email: "", phone: "", website: "https://fixture.test", webStatus: "Non vérifié" };
+  const base = { lat: null, lng: null, category: "Artisan", city: "Lyon", address: "Lyon", engine: "website", status: "À contacter", selected: false, fields: {}, socials: {}, photos: [], rating: null, reviews: null, email: "", phone: "", website: "https://fixture.example.org", webStatus: "Non vérifié" };
   let prospects = [{ ...base, id: "pending", name: "Site à vérifier", doNotContact: true }, { ...base, id: "missing", name: "Sans URL", website: "", webStatus: "Pas de site" }, { ...base, id: "archived", name: "Site archivé", archived: true }, { ...base, id: "demo", name: "Site démo", demo: true }, ...extra.map(p => ({ ...base, ...p }))];
   const calls: string[] = [];
   let fail = false, persist = true, legacy = false, active = 0, maxActive = 0;
@@ -55,7 +55,8 @@ test("row amber CTA checks homepage, no-site red is disabled, status changes aft
   await row.getByRole("button", { name: "Voir la fiche" }).click();
   const drawer = page.getByRole("complementary", { name: "Fiche prospect" });
   await expect(drawer.getByRole("button", { name: /Revérifier/ })).toBeVisible();
-  await expect(drawer.getByRole("button", { name: "Analyse complète du site" })).toBeEnabled();
+  await expect(drawer.getByRole("link", { name: "Analyse complète du site · Lighthouse / PageSpeed Insights", exact: true })).toHaveAttribute("target", "_blank");
+  await expect(drawer.getByRole("link", { name: "Identifier les technologies · Wappalyzer", exact: true })).toHaveAttribute("target", "_blank");
 });
 
 test("failure reason persists beside retry and stale readback never reports success", async ({ page }) => {
@@ -102,11 +103,11 @@ test("drawer controls and failures preserve prior audit; reload never triggers a
   await page.locator("tbody tr").filter({ hasText: "Sans URL" }).getByRole("button", { name: "Voir la fiche" }).click();
   await expect(drawer.getByRole("button", { name: "Aucun site renseigné", exact: true })).toHaveCSS("background-color", "rgb(254, 226, 226)");
   await expect(drawer.getByText(/cela ne prouve pas l’absence/)).toBeVisible();
-  await expect(drawer.getByRole("button", { name: "Analyse complète du site" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Analyse complète du site · Lighthouse / PageSpeed Insights", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Fermer la fiche" }).click();
   await page.locator("tbody tr").filter({ hasText: "Site démo" }).getByRole("button", { name: "Voir la fiche" }).click();
   await expect(drawer.getByRole("button", { name: /contrôle préliminaire/ })).toBeDisabled();
-  await expect(drawer.getByRole("button", { name: "Analyse complète du site" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Analyse complète du site · Lighthouse / PageSpeed Insights", exact: true })).toBeDisabled();
 });
 
 test("batch respects displayed filters and reports failed persistence without stopping", async ({ page }) => {
@@ -130,7 +131,7 @@ test("successful readback survives reload with neutral retry and homepage scope"
   await row.getByRole("button", { name: "Voir la fiche" }).click();
   const drawer = page.getByRole("complementary", { name: "Fiche prospect" });
   await expect(drawer.getByText("Contrôle préliminaire · page d’accueil uniquement", { exact: true })).toBeVisible();
-  await expect(drawer.getByRole("link", { name: "Source du contrôle" })).toHaveAttribute("href", "https://fixture.test/");
+  await expect(drawer.getByRole("link", { name: "Source du contrôle" })).toHaveAttribute("href", "https://fixture.example.org/");
   expect(api.calls).toEqual(["pending"]);
 });
 
@@ -140,7 +141,7 @@ test("archive controls stay guarded and mobile does not overflow", async ({ page
   await expect(page.getByRole("button", { name: "Vérifier les sites affichés", exact: true })).toHaveCount(0);
   await expect(page.locator("tbody").getByRole("button", { name: /contrôle préliminaire/ })).toBeDisabled();
   await page.getByRole("button", { name: "Voir la fiche" }).click();
-  await expect(page.getByRole("complementary", { name: "Fiche prospect" }).getByRole("button", { name: "Analyse complète du site" })).toBeDisabled();
+  await expect(page.getByRole("complementary", { name: "Fiche prospect" }).getByRole("button", { name: "Analyse complète du site · Lighthouse / PageSpeed Insights", exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
   await page.getByRole("button", { name: "Fermer la fiche" }).click();
