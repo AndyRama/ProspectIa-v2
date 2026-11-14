@@ -49,6 +49,7 @@ import type {
 } from "../../server/types";
 import { api, safeUrl } from "./api";
 import { safeGoogleBusinessUrl } from "./googleBusinessUrl";
+import { externalSiteTools } from "./externalSiteTools";
 import { emailPromptEligible } from "../../server/services/generators/emailEligibility";
 import ProspectMap from "./Map";
 import HermesPrompt from "./HermesPrompt";
@@ -384,6 +385,25 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       {failed && <small className="site-check-error">{p.siteCheck?.status === "failed" && p.siteCheck.error}</small>}
       {missing && <small>Aucune URL dans cette fiche ; cela ne prouve pas l’absence d’un site sur internet.</small>}
     </div>;
+  };
+  const externalSiteActions = (p: Prospect) => {
+    const actionStyle = { whiteSpace: "normal", textAlign: "center" } as const;
+    const tools = externalSiteTools(p.website);
+    const reason = p.archived ? "Lead archivé : désarchivez-le avant une analyse externe." : p.demo ? "Fiche de démonstration : aucune analyse externe." : busy ? "Une opération est en cours : patientez avant une analyse externe." : !p.website.trim() ? "Aucun site renseigné : ajoutez une URL publique HTTP(S) pour les analyses externes." : !tools ? "URL invalide ou non publique : utilisez un nom de domaine public HTTP(S), sans identifiants ni port non standard. Les adresses IP ne sont pas prises en charge." : "";
+    return <>
+      {[
+        { name: "Analyse complète du site · Lighthouse / PageSpeed Insights", href: tools?.pagespeed },
+        { name: "Identifier les technologies · Wappalyzer", href: tools?.wappalyzer },
+      ].map(({ name, href }) => !reason && href ? (
+        <a key={name} className="button ghost full" style={actionStyle} href={href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer"><Globe size={16} />{name}</a>
+      ) : (
+        <button key={name} className="button ghost full" style={actionStyle} disabled><Globe size={16} />{name}</button>
+      ))}
+      {reason && <p className="source-note">{reason}</p>}
+      <p className="source-note">
+        Le contrôle préliminaire est enregistré localement dans le CRM. Les analyses externes s’ouvrent uniquement à votre clic dans un nouvel onglet ; leurs résultats ne sont pas enregistrés dans le CRM. PageSpeed Insights reçoit l’URL publique sans paramètres ni fragment ; Wappalyzer reçoit seulement le nom d’hôte. Wappalyzer peut nécessiter un compte ou des crédits.
+      </p>
+    </>;
   };
   const toggle = async (p: Prospect, selected = !p.selected) => {
     if (p.archived) return;
@@ -1786,30 +1806,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 <p>{engines[engine].description}</p>
               </section>
               {siteCheckAction(opened)}
-              <button
-                className="button ghost full"
-                disabled={!!busy || !!opened.archived || !opened.website || opened.demo}
-                onClick={() =>
-                  task("analyze", async () => {
-                    await api(`/prospects/${opened.id}/analyze`, "POST", {});
-                    await refresh();
-                    setNotice({
-                      text: "Analyse enregistrée avec ses sources.",
-                    });
-                  })
-                }
-              >
-                {busy === "analyze" ? (
-                  <LoaderCircle className="spin" size={16} />
-                ) : (
-                  <Globe size={16} />
-                )}
-                Analyse complète du site
-              </button>
-              <p className="source-note">
-                Les sites sont consultés uniquement à votre demande. Les
-                informations collectées restent dans votre base privée.
-              </p>
+              {externalSiteActions(opened)}
             </div>
             <div className="drawer-actions">
               <button
